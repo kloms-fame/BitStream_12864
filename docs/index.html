@@ -135,6 +135,23 @@
   .fps-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
   .fps-label{font-size:.74rem;color:var(--muted);}
 
+
+  /* ── 极客复选框 ── */
+  .checkbox-row{display:flex;gap:20px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+  .geek-check{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.74rem;color:var(--muted);user-select:none;}
+  .geek-check input[type="checkbox"]{display:none;}
+  .geek-check .check-box{
+    width:18px;height:18px;border:1px solid var(--border);border-radius:4px;
+    display:flex;align-items:center;justify-content:center;
+    transition:all .25s;flex-shrink:0;
+  }
+  .geek-check .check-box::after{
+    content:'';width:8px;height:8px;border-radius:2px;
+    background:transparent;transition:background .25s;
+  }
+  .geek-check input:checked+.check-box{border-color:var(--accent);box-shadow:0 0 8px var(--accent-dim);}
+  .geek-check input:checked+.check-box::after{background:var(--accent);}
+  .geek-check:hover .check-box{border-color:#444;}
   /* ── OLED 预览 ── */
   .preview-wrap{display:flex;justify-content:center;padding:8px 0 2px;}
   canvas#preview{
@@ -212,7 +229,18 @@
       <option value="30">30 fps</option>
     </select>
   </div>
-
+  <div class="checkbox-row">
+    <label class="geek-check">
+      <input type="checkbox" id="invertCheck" onchange="onInvertChange()">
+      <span class="check-box"></span>
+      <span>反转颜色</span>
+    </label>
+    <label class="geek-check">
+      <input type="checkbox" id="greenCheck" onchange="onGreenChange()">
+      <span class="check-box"></span>
+      <span>过滤绿幕</span>
+    </label>
+  </div>
   <div class="preview-wrap">
     <canvas id="preview" width="128" height="64"></canvas>
   </div>
@@ -243,11 +271,13 @@ const preview=$('preview'),hiddenCvs=$('hiddenCanvas'),streamState=$('streamStat
 const bpBar=$('bpBar'),bpBuffered=$('bpBuffered'),bpDropped=$('bpDropped');
 const ctxHidden=hiddenCvs.getContext('2d',{willReadFrequently:true});
 const ctxPreview=preview.getContext('2d');
+const invertCheck=invertCheck,greenCheck=greenCheck;
 
 let ws=null,connected=false,streaming=false,seeking=false;
 let threshold=128,fpsTarget=20;
 let frameCnt=0,lastFrameTime=0,rafId=null;
 let fpsLastTime=0,fpsAccum=0;
+let invertColor=false,greenScreen=false;
 let droppedFrames=0;
 let pingStart=0,pingValue=-1,pingTimer=null;
 let currentVideoUrl=null;
@@ -424,7 +454,9 @@ function onThresholdChange(){
   threshold=parseInt(thresholdSlider.value);thresholdVal.textContent=threshold;
 }
 
-function onFpsChange(){
+
+function onInvertChange(){invertColor=invertCheck.checked;}
+function onGreenChange(){greenScreen=greenCheck.checked;}function onFpsChange(){
   fpsTarget=parseInt(fpsSelect.value);
   if(streaming){stopStream();startStream();}
 }
@@ -457,13 +489,19 @@ function processAndSendFrame(skipPauseCheck){
   const xbm=new Uint8Array(1024);
   const th=threshold;
 
+  const inv=invertColor,gs=greenScreen;
   for(let y=0;y<64;y++){
     const ro=y*128*4;
     for(let bx=0;bx<16;bx++){
       let bv=0;
       for(let bit=0;bit<8;bit++){
         const i=ro+(bx*8+bit)*4;
-        if(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]>th)bv|=(1<<bit);
+        const r=d[i],g=d[i+1],b=d[i+2];
+        let bright;
+        if(gs&&g>r*1.3&&g>b*1.3){bright=0;}         // 绿幕 → 强制暗像素
+        else{bright=(0.299*r+0.587*g+0.114*b)>th?1:0;}
+        if(inv)bright^=1;                             // 反转颜色
+        if(bright)bv|=(1<<bit);
       }
       xbm[y*16+bx]=bv;
     }
