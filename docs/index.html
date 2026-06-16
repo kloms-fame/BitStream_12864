@@ -244,12 +244,13 @@ const bpBar=$('bpBar'),bpBuffered=$('bpBuffered'),bpDropped=$('bpDropped');
 const ctxHidden=hiddenCvs.getContext('2d',{willReadFrequently:true});
 const ctxPreview=preview.getContext('2d');
 
-let ws=null,connected=false,streaming=false;
+let ws=null,connected=false,streaming=false,seeking=false;
 let threshold=128,fpsTarget=20;
 let frameCnt=0,lastFrameTime=0,rafId=null;
-let fpsTimer=null;
+let fpsLastTime=0,fpsAccum=0;
 let droppedFrames=0;
 let pingStart=0,pingValue=-1,pingTimer=null;
+let currentVideoUrl=null;
 
 /* ====================================================================== */
 /*  URL 参数自动连接                                                       */
@@ -306,9 +307,7 @@ function setStatus(on,text){
 /* ====================================================================== */
 function startPing(){
   pingTimer=setInterval(()=>{
-    if(ws&&ws.readyState===WebSocket.OPEN){
-      pingStart=Date.now();ws.send('ping');
-    }
+    if(ws&&ws.readyState===WebSocket.OPEN){pingStart=Date.now();ws.send('ping');}
   },2000);
 }
 
@@ -333,13 +332,11 @@ function updateBackpressure(){
   const buf=ws&&ws.readyState===WebSocket.OPEN?ws.bufferedAmount:0;
   bpBuffered.textContent=buf>1024?(buf/1024).toFixed(1)+' KB':buf+' B';
   bpDropped.textContent=droppedFrames;
-
-  // 有堆积时闪烁警告
   bpBar.className='backpressure-bar'+(buf>0?' warning':'');
 }
 
 /* ====================================================================== */
-/*  音画同步控制                                                           */
+/*  精准视频状态机                                                         */
 /* ====================================================================== */
 video.addEventListener('play',()=>{
   if(connected&&!streaming&&video.src)startStream();
@@ -353,24 +350,71 @@ video.addEventListener('ended',()=>{
   if(streaming)stopStream();
 });
 
+// 拖动进度条开始 → 立即冻结推流循环，防止无效帧堆积
+video.addEventListener('seeking',()=>{
+  if(!streaming)return;
+  seeking=true;
+  if(rafId){cancelAnimationFrame(rafId);rafId=null;}
+});
+
+// 拖动结束 → 强制捕获一帧同步 OLED，再恢复循环
+video.addEventListener('seeked',()=>{
+  if(!connected||!video.src)return;
+  seeking=false;
+  processAndSendFrame(true);          // 强制抽帧（忽略暂停状态）
+  if(streaming&&!video.paused){       // 视频正在播放才恢复循环
+    lastFrameTime=0;
+    rafId=requestAnimationFrame(tick);
+  }
+});
+
+/* ====================================================================== */
+/*  推流控制（rAF 替代 setInterval）                                       */
+/* ====================================================================== */
 function startStream(){
   if(!connected||!ws||ws.readyState!==WebSocket.OPEN||!video.src)return;
-  streaming=true;frameCnt=0;droppedFrames=0;lastFrameTime=0;
+  streaming=true;seeking=false;
+  frameCnt=0;droppedFrames=0;lastFrameTime=0;
+  fpsLastTime=0;fpsAccum=0;
   updateState();updateBackpressure();
-  fpsTimer=setInterval(()=>{fpsCounter.textContent=frameCnt+' fps';frameCnt=0;},1000);
-  rafId=requestAnimationFrame(processFrameLoop);
+  rafId=requestAnimationFrame(tick);
 }
 
 function stopStream(){
-  streaming=false;
+  streaming=false;seeking=false;
   if(rafId){cancelAnimationFrame(rafId);rafId=null;}
-  if(fpsTimer){clearInterval(fpsTimer);fpsTimer=null;}
-  fpsCounter.textContent='';updateState();updateBackpressure();
+  updateState();updateBackpressure();
+  fpsCounter.textContent='';
 }
 
 function updateState(){
   streamState.textContent=streaming?'推流中':'待机';
   streamState.style.color=streaming?'var(--accent)':'var(--muted)';
+}
+
+/* ====================================================================== */
+/*  requestAnimationFrame 主循环（时间戳精确控帧）                         */
+/* ====================================================================== */
+function tick(timestamp){
+  if(!streaming||seeking){rafId=null;return;}
+
+  // 每秒更新 FPS 显示
+  if(!fpsLastTime)fpsLastTime=timestamp;
+  fpsAccum++;
+  if(timestamp-fpsLastTime>=1000){
+    fpsCounter.textContent=fpsAccum+' fps';
+    fpsAccum=0;fpsLastTime=timestamp;
+  }
+
+  // 基于 fpsTarget 的帧率节流
+  const interval=1000/fpsTarget;
+  if(timestamp-lastFrameTime>=interval){
+    lastFrameTime=timestamp;
+    processAndSendFrame(false);
+  }
+
+  updateBackpressure();
+  rafId=requestAnimationFrame(tick);
 }
 
 /* ====================================================================== */
@@ -385,37 +429,28 @@ function onFpsChange(){
   if(streaming){stopStream();startStream();}
 }
 
+/* ====================================================================== */
+/*  无缝切换视频                                                           */
+/* ====================================================================== */
 function onFileSelected(e){
   const file=e.target.files[0];if(!file)return;
-  video.src=URL.createObjectURL(file);
+
+  // 先停止推流，释放旧视频内存，再加载新视频
+  if(streaming)stopStream();
+  if(currentVideoUrl){URL.revokeObjectURL(currentVideoUrl);currentVideoUrl=null;}
+
+  currentVideoUrl=URL.createObjectURL(file);
+  video.src=currentVideoUrl;
   fileLabel.textContent=file.name;
   video.load();
 }
 
 /* ====================================================================== */
-/*  requestAnimationFrame 驱动的抽帧循环（平滑调度）                       */
-/* ====================================================================== */
-function processFrameLoop(timestamp){
-  if(!streaming){return;}
-
-  // 基于 fpsTarget 的节流控制
-  const interval=1000/fpsTarget;
-  if(timestamp-lastFrameTime>=interval){
-    lastFrameTime=timestamp;
-    processAndSendFrame();
-  }
-
-  // 每帧刷新一次背压 UI（即使没有抽帧也更新）
-  updateBackpressure();
-
-  rafId=requestAnimationFrame(processFrameLoop);
-}
-
-/* ====================================================================== */
 /*  高性能抽帧 → 灰度 → XBM → 背压控制 → WebSocket                        */
 /* ====================================================================== */
-function processAndSendFrame(){
-  if(!streaming||video.paused||video.ended)return;
+function processAndSendFrame(skipPauseCheck){
+  if(video.ended||!video.src)return;
+  if(!skipPauseCheck&&video.paused)return;
 
   ctxHidden.drawImage(video,0,0,128,64);
   const d=ctxHidden.getImageData(0,0,128,64).data;
@@ -434,7 +469,7 @@ function processAndSendFrame(){
     }
   }
 
-  // OLED 点阵预览（始终渲染，不受背压影响）
+  // OLED 点阵预览（始终实时渲染，不受背压丢帧影响）
   const pi=ctxPreview.createImageData(128,64),pp=pi.data;
   for(let y=0;y<64;y++){
     for(let bx=0;bx<16;bx++){
@@ -447,12 +482,11 @@ function processAndSendFrame(){
   }
   ctxPreview.putImageData(pi,0,0);
 
-  // ── 背压控制：TCP 缓冲区堆积时主动丢帧 ──
-  if(ws.readyState!==WebSocket.OPEN)return;
-
-  if(ws.bufferedAmount>0){
+  // ── 极致背压：bufferedAmount 不为零立即丢帧 ──
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  if(ws.bufferedAmount!==0){
     droppedFrames++;
-    return; // 丢弃当前帧，不发送
+    return;
   }
 
   ws.send(xbm.buffer);
@@ -466,6 +500,7 @@ window.addEventListener('beforeunload',()=>{
   if(streaming)stopStream();
   stopPing();
   if(ws){ws.onclose=null;ws.close();}
+  if(currentVideoUrl)URL.revokeObjectURL(currentVideoUrl);
 });
 </script>
 </body>
