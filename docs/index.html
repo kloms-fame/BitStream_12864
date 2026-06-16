@@ -271,16 +271,16 @@ const preview=$('preview'),hiddenCvs=$('hiddenCanvas'),streamState=$('streamStat
 const bpBar=$('bpBar'),bpBuffered=$('bpBuffered'),bpDropped=$('bpDropped');
 const ctxHidden=hiddenCvs.getContext('2d',{willReadFrequently:true});
 const ctxPreview=preview.getContext('2d');
-const invertCheck=invertCheck,greenCheck=greenCheck;
+const invertCheck=$('invertCheck'),greenCheck=$('greenCheck');
 
-let ws=null,connected=false,streaming=false,seeking=false;
+let ws=null,connected=false,streaming=false,seeking=false,videoReady=false;
 let threshold=128,fpsTarget=20;
 let frameCnt=0,lastFrameTime=0,rafId=null;
 let fpsLastTime=0,fpsAccum=0;
 let invertColor=false,greenScreen=false;
 let droppedFrames=0;
 let pingStart=0,pingValue=-1,pingTimer=null;
-let currentVideoUrl=null;
+let currentVideoUrl=null,lastVideoTime=-1;
 
 /* ====================================================================== */
 /*  URL 参数自动连接                                                       */
@@ -294,23 +294,18 @@ function connect(wsUrl){
   if(connected)disconnect();
   const url=wsUrl||ipInputVal();
   if(!url){setStatus(false,'未检测到设备 IP，请在 URL 后添加 ?ip=192.168.x.x');return;}
-
   try{ws=new WebSocket(url);}catch(e){setStatus(false,'URL 格式无效');return;}
   ws.binaryType='arraybuffer';
   setStatus(false,'正在连接 '+url+' …');
-
   ws.onopen=()=>{
     connected=true;droppedFrames=0;setStatus(true,url);updateBackpressure();
     startPing();
   };
-
   ws.onclose=()=>{
     connected=false;if(streaming)stopStream();
     stopPing();setStatus(false,'连接已关闭');updateBackpressure();
   };
-
   ws.onerror=()=>{setStatus(false,'连接失败');};
-
   ws.onmessage=(e)=>{
     if(typeof e.data==='string'&&e.data==='pong'){
       pingValue=Date.now()-pingStart;
@@ -340,12 +335,10 @@ function startPing(){
     if(ws&&ws.readyState===WebSocket.OPEN){pingStart=Date.now();ws.send('ping');}
   },2000);
 }
-
 function stopPing(){
   if(pingTimer){clearInterval(pingTimer);pingTimer=null;}
   pingValue=-1;updatePingBadge();
 }
-
 function updatePingBadge(){
   if(pingValue<0){pingBadge.textContent='-- ms';pingBadge.className='ping-badge';statusMeta.textContent='WebSocket 已建立 · 端口 81';}
   else{
@@ -368,8 +361,13 @@ function updateBackpressure(){
 /* ====================================================================== */
 /*  精准视频状态机                                                         */
 /* ====================================================================== */
+
+// 新视频就绪后才允许推流
+video.addEventListener('canplay',()=>{videoReady=true;});
+video.addEventListener('loadeddata',()=>{videoReady=true;});
+
 video.addEventListener('play',()=>{
-  if(connected&&!streaming&&video.src)startStream();
+  if(connected&&!streaming&&video.src&&videoReady)startStream();
 });
 
 video.addEventListener('pause',()=>{
@@ -380,31 +378,31 @@ video.addEventListener('ended',()=>{
   if(streaming)stopStream();
 });
 
-// 拖动进度条开始 → 立即冻结推流循环，防止无效帧堆积
+// 拖动进度条 → 冻结推流，防止无效帧堆积
 video.addEventListener('seeking',()=>{
   if(!streaming)return;
-  seeking=true;
+  seeking=true;lastVideoTime=-1;
   if(rafId){cancelAnimationFrame(rafId);rafId=null;}
 });
 
-// 拖动结束 → 强制捕获一帧同步 OLED，再恢复循环
+// 拖动结束 → 强制同步一帧到 OLED，再恢复循环
 video.addEventListener('seeked',()=>{
   if(!connected||!video.src)return;
-  seeking=false;
-  processAndSendFrame(true);          // 强制抽帧（忽略暂停状态）
-  if(streaming&&!video.paused){       // 视频正在播放才恢复循环
+  seeking=false;lastVideoTime=-1;
+  processAndSendFrame(true);
+  if(streaming&&!video.paused){
     lastFrameTime=0;
     rafId=requestAnimationFrame(tick);
   }
 });
 
 /* ====================================================================== */
-/*  推流控制（rAF 替代 setInterval）                                       */
+/*  推流控制                                                               */
 /* ====================================================================== */
 function startStream(){
-  if(!connected||!ws||ws.readyState!==WebSocket.OPEN||!video.src)return;
+  if(!connected||!ws||ws.readyState!==WebSocket.OPEN||!video.src||!videoReady)return;
   streaming=true;seeking=false;
-  frameCnt=0;droppedFrames=0;lastFrameTime=0;
+  frameCnt=0;droppedFrames=0;lastFrameTime=0;lastVideoTime=-1;
   fpsLastTime=0;fpsAccum=0;
   updateState();updateBackpressure();
   rafId=requestAnimationFrame(tick);
@@ -423,12 +421,12 @@ function updateState(){
 }
 
 /* ====================================================================== */
-/*  requestAnimationFrame 主循环（时间戳精确控帧）                         */
+/*  rAF 主循环（时间戳精确控帧）                                           */
 /* ====================================================================== */
 function tick(timestamp){
   if(!streaming||seeking){rafId=null;return;}
 
-  // 每秒更新 FPS 显示
+  // 每秒更新 FPS
   if(!fpsLastTime)fpsLastTime=timestamp;
   fpsAccum++;
   if(timestamp-fpsLastTime>=1000){
@@ -436,7 +434,7 @@ function tick(timestamp){
     fpsAccum=0;fpsLastTime=timestamp;
   }
 
-  // 基于 fpsTarget 的帧率节流
+  // 帧率节流
   const interval=1000/fpsTarget;
   if(timestamp-lastFrameTime>=interval){
     lastFrameTime=timestamp;
@@ -448,29 +446,34 @@ function tick(timestamp){
 }
 
 /* ====================================================================== */
-/*  控制面板回调                                                           */
+/*  控制面板                                                               */
 /* ====================================================================== */
 function onThresholdChange(){
   threshold=parseInt(thresholdSlider.value);thresholdVal.textContent=threshold;
 }
-
-
 function onInvertChange(){invertColor=invertCheck.checked;}
-function onGreenChange(){greenScreen=greenCheck.checked;}function onFpsChange(){
+function onGreenChange(){greenScreen=greenCheck.checked;}
+function onFpsChange(){
   fpsTarget=parseInt(fpsSelect.value);
   if(streaming){stopStream();startStream();}
 }
 
 /* ====================================================================== */
-/*  无缝切换视频                                                           */
+/*  无缝切换视频（彻底杀死旧循环，等待 canplay 再恢复）                    */
 /* ====================================================================== */
 function onFileSelected(e){
   const file=e.target.files[0];if(!file)return;
 
-  // 先停止推流，释放旧视频内存，再加载新视频
+  // 1. 立即杀死旧推流循环
   if(streaming)stopStream();
+
+  // 2. 释放旧视频内存
   if(currentVideoUrl){URL.revokeObjectURL(currentVideoUrl);currentVideoUrl=null;}
 
+  // 3. 标记未就绪，阻断 play 事件误启动
+  videoReady=false;
+
+  // 4. 加载新视频
   currentVideoUrl=URL.createObjectURL(file);
   video.src=currentVideoUrl;
   fileLabel.textContent=file.name;
@@ -478,9 +481,14 @@ function onFileSelected(e){
 }
 
 /* ====================================================================== */
-/*  高性能抽帧 → 灰度 → XBM → 背压控制 → WebSocket                        */
+/*  极致抽帧 → 整数灰度 → 循环优化 → 去重 → 背压 → WebSocket             */
 /* ====================================================================== */
 function processAndSendFrame(skipPauseCheck){
+  // 画面去重：currentTime 未变化则不发送（缓冲中/卡顿/暂停）
+  const ct=video.currentTime;
+  if(ct===lastVideoTime)return;
+  lastVideoTime=ct;
+
   if(video.ended||!video.src)return;
   if(!skipPauseCheck&&video.paused)return;
 
@@ -488,26 +496,28 @@ function processAndSendFrame(skipPauseCheck){
   const d=ctxHidden.getImageData(0,0,128,64).data;
   const xbm=new Uint8Array(1024);
   const th=threshold;
-
   const inv=invertColor,gs=greenScreen;
+
+  // 整数移位灰度：gray = (R*77 + G*150 + B*29) >> 8 ，精度 99%+，零浮点
   for(let y=0;y<64;y++){
-    const ro=y*128*4;
+    const rowOff=y*512;                  // y * 128 * 4
     for(let bx=0;bx<16;bx++){
       let bv=0;
+      const base=rowOff+bx*32;           // (y*128 + bx*8) * 4
       for(let bit=0;bit<8;bit++){
-        const i=ro+(bx*8+bit)*4;
+        const i=base+bit*4;
         const r=d[i],g=d[i+1],b=d[i+2];
         let bright;
-        if(gs&&g>r*1.3&&g>b*1.3){bright=0;}         // 绿幕 → 强制暗像素
-        else{bright=(0.299*r+0.587*g+0.114*b)>th?1:0;}
-        if(inv)bright^=1;                             // 反转颜色
+        if(gs&&g*10>r*13&&g*10>b*13){bright=0;}  // 绿幕强制暗
+        else{bright=((r*77+g*150+b*29)>>8)>th?1:0;}
+        if(inv)bright^=1;                         // 反转
         if(bright)bv|=(1<<bit);
       }
       xbm[y*16+bx]=bv;
     }
   }
 
-  // OLED 点阵预览（始终实时渲染，不受背压丢帧影响）
+  // OLED 点阵预览
   const pi=ctxPreview.createImageData(128,64),pp=pi.data;
   for(let y=0;y<64;y++){
     for(let bx=0;bx<16;bx++){
@@ -520,9 +530,9 @@ function processAndSendFrame(skipPauseCheck){
   }
   ctxPreview.putImageData(pi,0,0);
 
-  // ── 极致背压：bufferedAmount 不为零立即丢帧 ──
+  // 背压：允许 1 帧缓冲平滑抖动，超过则丢帧
   if(!ws||ws.readyState!==WebSocket.OPEN)return;
-  if(ws.bufferedAmount!==0){
+  if(ws.bufferedAmount>1024){
     droppedFrames++;
     return;
   }
@@ -532,7 +542,7 @@ function processAndSendFrame(skipPauseCheck){
 }
 
 /* ====================================================================== */
-/*  页面卸载清理                                                           */
+/*  清理                                                                   */
 /* ====================================================================== */
 window.addEventListener('beforeunload',()=>{
   if(streaming)stopStream();
