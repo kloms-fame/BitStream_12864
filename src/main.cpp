@@ -1,12 +1,13 @@
 /**
  * @file    main.cpp
- * @brief   主程序入口 — 组装 DisplayManager 与 NetworkManager
+ * @brief   主程序入口 — 组装 DisplayManager / NetworkManager / WebServerManager
  *
- * @details 本文件将两个独立模块以“积木拼接”方式组装为完整的
- *          二进制流媒体推送终端：
- *          1. 初始化 OLED 屏幕，显示连接提示
- *          2. 连接 WiFi，成功后将 IP 地址输出到屏幕
- *          3. 启动 WebSocket 服务端，接收帧数据并渲染至屏幕
+ * @details 本文件将三个独立模块以积木方式组装为完整的二进制流媒体推送终端：
+ *          1. WebServerManager  — 80 端口托管前端控制台页面
+ *          2. NetworkManager    — 81 端口接收 WebSocket 二进制帧
+ *          3. DisplayManager    — 128×64 OLED 帧渲染
+ *
+ *          loop() 中同时驱动 HTTP 与 WebSocket 两个事件循环。
  */
 
 #include <Arduino.h>
@@ -14,13 +15,15 @@
 
 #include "DisplayManager.h"
 #include "NetworkManager.h"
+#include "WebServerManager.h"
 
 /* ======================================================================== */
 /*  全局模块实例                                                            */
 /* ======================================================================== */
 
-DisplayManager display;
-NetworkManager network;
+DisplayManager   display;
+NetworkManager   network;
+WebServerManager webServer;
 
 /* ======================================================================== */
 /*  setup — 系统初始化                                                      */
@@ -40,7 +43,10 @@ void setup()
     // 3. 屏幕显示 IP 地址
     display.showStatus(WiFi.localIP().toString().c_str());
 
-    // 4. 启动 WebSocket 流媒体服务
+    // 4. 启动 HTTP 服务（80 端口，托管前端页面）
+    webServer.begin();
+
+    // 5. 启动 WebSocket 流媒体服务（81 端口）
     network.startStreamServer([](uint8_t *payload, size_t length)
     {
         display.renderFrame(payload);
@@ -48,10 +54,11 @@ void setup()
 }
 
 /* ======================================================================== */
-/*  loop — 事件驱动                                                         */
+/*  loop — 双路事件驱动                                                     */
 /* ======================================================================== */
 
 void loop()
 {
-    network.loop();
+    webServer.loop();  // 处理 HTTP 请求
+    network.loop();    // 处理 WebSocket 事件
 }
