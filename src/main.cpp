@@ -23,8 +23,8 @@
 /*  全局模块实例                                                            */
 /* ======================================================================== */
 
-DisplayManager   display;
-NetworkManager   network;
+DisplayManager display;
+NetworkManager network;
 WebServerManager webServer;
 
 /* ======================================================================== */
@@ -40,7 +40,7 @@ void setup()
     display.showStatus("Connecting...");
 
     // 2. 连接 WiFi
-    network.connectWiFi("Rennick_Plus", "password");
+    network.connectWiFi("REDMI K80 Pro", "123456789");
 
     // 3. 屏幕显示 IP 地址
     display.showStatus(WiFi.localIP().toString().c_str());
@@ -50,9 +50,7 @@ void setup()
 
     // 5. 启动 WebSocket 流媒体服务（81 端口）
     network.startStreamServer([](uint8_t *payload, size_t length)
-    {
-        display.renderFrame(payload);
-    });
+                              { display.renderFrame(payload); });
 }
 
 /* ======================================================================== */
@@ -61,8 +59,8 @@ void setup()
 
 void loop()
 {
-    webServer.loop();  // 处理 HTTP 请求
-    network.loop();    // 处理 WebSocket 事件
-
-    yield();           // 将控制权交还 WiFi 射频内核，确保 TCP ACK 及时回复
+    webServer.loop(); // 处理 HTTP 请求
+    network.loop();   // 处理 WebSocket 事件
+    delay(1);         // 强制让渡 1ms 给 WiFi 射频栈，确保 sendTXT("ACK") 立即发出
+    yield();          // 再次交还控制权，确保 TCP ACK 及时回复
 }
