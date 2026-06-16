@@ -2,10 +2,11 @@
  * @file    WebServerManager.cpp
  * @brief   WebServerManager 类的方法实现
  *
- * @details LittleFS 挂载、GET / 路由注册及 HTTP 事件循环。
+ * @details GET / 路由注册及 HTTP 302 重定向逻辑。
  */
 
 #include "WebServerManager.h"
+#include <ESP8266WiFi.h>
 
 /* ======================================================================== */
 /*  构造函数                                                                */
@@ -24,33 +25,24 @@ WebServerManager::WebServerManager()
 /* ======================================================================== */
 
 /**
- * @brief 挂载 LittleFS 并注册根路径路由
+ * @brief 注册根路径重定向路由并启动 HTTP 服务
  *
- * @details 调用 LittleFS.begin() 挂载闪存文件系统。
- *          注册 GET / 处理器：从 LittleFS 打开 /index.html，
- *          显式声明 text/html; charset=utf-8 防止中文乱码，
- *          以流式方式返回文件内容避免 String 堆分配。
+ * @details 注册 GET / 处理器：构造 GitHub Pages URL，
+ *          将设备局域网 IP 作为查询参数附加，
+ *          通过 HTTP 302 重定向将客户端引导至前端控制台。
  */
 void WebServerManager::begin()
 {
-    LittleFS.begin();
-
     server.on("/", HTTP_GET, [this]()
     {
-        File file = LittleFS.open("/index.html", "r");
-        if (!file)
-        {
-            server.send(404, "text/plain", "404: index.html not found");
-            return;
-        }
-
-        server.sendHeader("Content-Type", "text/html; charset=utf-8");
-        server.streamFile(file, "");
-        file.close();
+        String url = "https://kloms-fame.github.io/BitStream_12864/?ip="
+                   + WiFi.localIP().toString();
+        server.sendHeader("Location", url, true);
+        server.send(302, "text/plain", "");
     });
 
     server.begin();
-    Serial.println("HTTP server started on port 80");
+    Serial.println("HTTP redirect server started on port 80");
 }
 
 /**
