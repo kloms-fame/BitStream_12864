@@ -2,8 +2,10 @@
  * @file    DisplayManager.cpp
  * @brief   DisplayManager 类的方法实现
  *
- * @details 包含 OLED 初始化、状态提示及二进制帧渲染的完整实现。
+ * @details 包含 OLED 初始化、I2C 超频配置、状态提示及二进制帧渲染。
  *          依赖 U8g2lib 库与硬件 I2C 总线。
+ *          I2C 时钟超频至 800kHz，将单帧传输时间从 ~90ms 压缩至 ~15ms，
+ *          以匹配 20fps（50ms/帧）的推流速率。
  */
 
 #include "DisplayManager.h"
@@ -29,10 +31,16 @@ DisplayManager::DisplayManager()
 /* ======================================================================== */
 
 /**
- * @brief 执行 OLED 硬件初始化
+ * @brief 执行 OLED 硬件初始化与 I2C 总线超频
+ *
+ * @details 在调用 begin() 之前将 I2C 时钟频率从默认 100kHz 提升至 800kHz，
+ *          将 1024 字节帧数据的传输时间从 ~90ms 压缩至 ~15ms，
+ *          确保 20fps 推流不产生缓冲区堆积。
+ *          若 800kHz 不稳定可降级为 400000。
  */
 void DisplayManager::begin()
 {
+    u8g2.setBusClock(800000);
     u8g2.begin();
     u8g2.clearBuffer();
     u8g2.sendBuffer();
@@ -61,14 +69,14 @@ void DisplayManager::showStatus(const char *text)
 }
 
 /**
- * @brief 渲染一帧 1024 字节的 XBM 位图流
+ * @brief 渲染一帧 1024 字节的 XBM 位图流（零延时，极速绘制）
  *
  * @param payload 指向 1024 字节位图数据的内存指针
  *
  * @details 将 payload 指向的 128×64 单色位图数据通过 drawXBM()
  *          写入 U8g2 调试缓冲区，随后调用 sendBuffer() 一次性
- *          刷新整个 OLED 屏幕。该方法无返回值，无副作用，仅执行
- *          纯粹的像素映射与传输。
+ *          通过超频 I2C 总线刷新整个 OLED 屏幕。
+ *          本方法内部无任何延时逻辑，追求极致绘制速度。
  */
 void DisplayManager::renderFrame(uint8_t *payload)
 {
