@@ -280,7 +280,7 @@ let fpsLastTime=0,fpsAccum=0;
 let invertColor=false,greenScreen=false;
 let droppedFrames=0;
 let pingStart=0,pingValue=-1,pingTimer=null;
-let currentVideoUrl=null,lastVideoTime=-1;
+let currentVideoUrl=null,lastVideoTime=-1,isEspReady=true,ackTimeout=null;
 
 /* ====================================================================== */
 /*  URL 参数自动连接                                                       */
@@ -302,20 +302,27 @@ function connect(wsUrl){
     startPing();
   };
   ws.onclose=()=>{
-    connected=false;if(streaming)stopStream();
+    connected=false;if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
     stopPing();setStatus(false,'连接已关闭');updateBackpressure();
   };
   ws.onerror=()=>{setStatus(false,'连接失败');};
   ws.onmessage=(e)=>{
-    if(typeof e.data==='string'&&e.data==='pong'){
-      pingValue=Date.now()-pingStart;
-      updatePingBadge();
+    if(typeof e.data==='string'){
+      if(e.data==='ACK'){
+        if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
+        isEspReady=true;
+        return;
+      }
+      if(e.data==='pong'){
+        pingValue=Date.now()-pingStart;
+        updatePingBadge();
+      }
     }
   };
 }
 
 function disconnect(){
-  if(streaming)stopStream();
+  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
   stopPing();
   if(ws){ws.onclose=null;ws.close();ws=null;}
   connected=false;setStatus(false,'已断开');updateBackpressure();
@@ -371,11 +378,11 @@ video.addEventListener('play',()=>{
 });
 
 video.addEventListener('pause',()=>{
-  if(streaming)stopStream();
+  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
 });
 
 video.addEventListener('ended',()=>{
-  if(streaming)stopStream();
+  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
 });
 
 // 拖动进度条 → 冻结推流，防止无效帧堆积
@@ -402,6 +409,7 @@ video.addEventListener('seeked',()=>{
 function startStream(){
   if(!connected||!ws||ws.readyState!==WebSocket.OPEN||!video.src||!videoReady)return;
   streaming=true;seeking=false;
+  isEspReady=true;if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
   frameCnt=0;droppedFrames=0;lastFrameTime=0;lastVideoTime=-1;
   fpsLastTime=0;fpsAccum=0;
   updateState();updateBackpressure();
@@ -409,7 +417,7 @@ function startStream(){
 }
 
 function stopStream(){
-  streaming=false;seeking=false;
+  streaming=false;seeking=false;isEspReady=true;if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
   if(rafId){cancelAnimationFrame(rafId);rafId=null;}
   updateState();updateBackpressure();
   fpsCounter.textContent='';
@@ -425,6 +433,7 @@ function updateState(){
 /* ====================================================================== */
 function tick(timestamp){
   if(!streaming||seeking){rafId=null;return;}
+  if(!isEspReady)return;
 
   // 每秒更新 FPS
   if(!fpsLastTime)fpsLastTime=timestamp;
@@ -465,7 +474,7 @@ function onFileSelected(e){
   const file=e.target.files[0];if(!file)return;
 
   // 1. 立即杀死旧推流循环
-  if(streaming)stopStream();
+  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
 
   // 2. 释放旧视频内存
   if(currentVideoUrl){URL.revokeObjectURL(currentVideoUrl);currentVideoUrl=null;}
@@ -530,22 +539,21 @@ function processAndSendFrame(skipPauseCheck){
   }
   ctxPreview.putImageData(pi,0,0);
 
-  // 背压：允许 1 帧缓冲平滑抖动，超过则丢帧
+  // ── Ping-Pong 锁步：ESP 渲染完一帧才允许发下一帧 ──
   if(!ws||ws.readyState!==WebSocket.OPEN)return;
-  if(ws.bufferedAmount>1024){
-    droppedFrames++;
-    return;
-  }
 
   ws.send(xbm.buffer);
   frameCnt++;
+  isEspReady=false;
+  if(ackTimeout)clearTimeout(ackTimeout);
+  ackTimeout=setTimeout(()=>{isEspReady=true;},150);
 }
 
 /* ====================================================================== */
 /*  清理                                                                   */
 /* ====================================================================== */
 window.addEventListener('beforeunload',()=>{
-  if(streaming)stopStream();
+  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
   stopPing();
   if(ws){ws.onclose=null;ws.close();}
   if(currentVideoUrl)URL.revokeObjectURL(currentVideoUrl);
