@@ -50,20 +50,43 @@ void NetworkManager::connectWiFi(const char *ssid, const char *password)
  *
  * @param onFrameReceived 上层回调，签名为 void(uint8_t*, size_t)
  *
- * @details 使用 lambda 捕获 onFrameReceived（按值捕获以延长生命周期），
- *          绑定为 WebSocket 服务器的事件回调。仅在收到 WStype_BIN 且
- *          payload 长度等于 1024 字节时将数据指针与长度传递给上层。
- *          payload 内存由 WebSocketsServer 库管理，本模块不做释放。
+ * @details 调用 webSocket.begin() 后绑定事件处理器，通过 Serial
+ *          输出客户端连接/断开及异常帧类型日志以便诊断。
  */
 void NetworkManager::startStreamServer(std::function<void(uint8_t *, size_t)> onFrameReceived)
 {
     webSocket.begin();
+    Serial.println("WebSocket server started on port 81");
 
-    webSocket.onEvent([onFrameReceived](uint8_t num, WStype_t type, uint8_t *payload, size_t length)
+    webSocket.onEvent([this, onFrameReceived](uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     {
-        if (type == WStype_BIN && length == 1024)
+        switch (type)
         {
-            onFrameReceived(payload, length);
+        case WStype_DISCONNECTED:
+            Serial.printf("[%u] Client disconnected\n", num);
+            break;
+
+        case WStype_CONNECTED:
+            Serial.printf("[%u] Client connected from %s\n",
+                          num,
+                          webSocket.remoteIP(num).toString().c_str());
+            break;
+
+        case WStype_BIN:
+            if (length == 1024)
+            {
+                onFrameReceived(payload, length);
+            }
+            else
+            {
+                Serial.printf("[%u] BIN frame ignored: expected 1024, got %u bytes\n",
+                              num, length);
+            }
+            break;
+
+        default:
+            // 静默忽略其他事件类型（PING/PONG/TEXT 等）
+            break;
         }
     });
 }
