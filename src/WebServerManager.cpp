@@ -28,7 +28,8 @@ WebServerManager::WebServerManager()
  *
  * @details 调用 LittleFS.begin() 挂载闪存文件系统。
  *          注册 GET / 处理器：从 LittleFS 打开 /index.html，
- *          读取全部内容并以 text/html MIME 类型响应。
+ *          显式声明 text/html; charset=utf-8 防止中文乱码，
+ *          以流式方式返回文件内容避免 String 堆分配。
  */
 void WebServerManager::begin()
 {
@@ -43,7 +44,8 @@ void WebServerManager::begin()
             return;
         }
 
-        server.streamFile(file, "text/html");
+        server.sendHeader("Content-Type", "text/html; charset=utf-8");
+        server.streamFile(file, "");
         file.close();
     });
 
