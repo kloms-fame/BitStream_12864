@@ -76,6 +76,7 @@ void NetworkManager::startStreamServer(std::function<void(uint8_t *, size_t)> on
             if (length == 1024)
             {
                 onFrameReceived(payload, length);
+                webSocket.sendTXT(num, "ACK");
             }
             else
             {
