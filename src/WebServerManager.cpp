@@ -9,6 +9,7 @@
  */
 
 #include "WebServerManager.h"
+#include "DebugMacros.h"  // [P3-6]
 #include "NetworkManager.h"
 
 /* ========================================================================== */
@@ -54,6 +55,12 @@ void WebServerManager::begin()
     m_httpServer.on("/api/setwifi", HTTP_POST,
         [this]() { handleSetWiFi(); });
 
+    // ── [P3-5] 版本信息 ──────────────────────────────────────
+    m_httpServer.on("/api/version", HTTP_GET, [this]() {
+        m_httpServer.send(200, "application/json",
+            "{\"version\":\"2.1.0\",\"platform\":\"ESP8266\"}");
+    });
+
     // ── Captive Portal 检测端点 ───────────────────────────────────────
     // 全部 302 重定向至 /，让设备浏览器弹出强制门户
 
@@ -88,6 +95,20 @@ void WebServerManager::begin()
         [this]() { redirectToRoot(); });
 
     // 404 兜底 — 打印被拦截的原始 URI 后返回首页
+
+    // ── 共享推流引擎 JS (供两个前端页面共用) ───────────────────────
+    m_httpServer.on("/stream-engine.js", HTTP_GET, [this]() {
+        const char* engineFile = "/stream-engine.js";
+        if (LittleFS.exists(engineFile)) {
+            File f = LittleFS.open(engineFile, "r");
+            if (f) {
+                m_httpServer.streamFile(f, "application/javascript; charset=utf-8");
+                f.close();
+                return;
+            }
+        }
+        m_httpServer.send(404, "text/plain", "engine not found");
+    });
     m_httpServer.onNotFound([this]() {
         Serial.printf("[WEB] 拦截未知请求: %s | 客户端: %s\n",
                       m_httpServer.uri().c_str(),
@@ -113,7 +134,16 @@ void WebServerManager::loop()
 
     // DNS 劫持仅在 AP 模式有效，STA 模式直接跳过
     if (NetworkManager::isAPMode()) {
-        m_dnsServer.processNextRequest();
+    // [P2-3] DNS 限流：仅每 100ms 处理一次 DNS 请求，防止 CAPTIVE PORTAL
+    // 探测风暴占满 ESP8266 CPU
+    if (NetworkManager::isAPMode()) {
+        static uint32_t s_lastDnsProcess = 0;
+        const uint32_t nowDns = millis();
+        if (nowDns - s_lastDnsProcess >= 100) {
+            s_lastDnsProcess = nowDns;
+            m_dnsServer.processNextRequest();
+        }
+    }
         // 注意：已移除高频 DNS 刷屏日志，避免占用单片机串口资源
     }
 }

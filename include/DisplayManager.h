@@ -108,9 +108,28 @@ public:
      */
     uint8_t getBrightness() const;
 
+    // ── [P2-4] I2C 速率动态配置 ──────────────────────────────
+    /**
+     * @brief 运行时调整 I2C 总线时钟频率
+     * @param hz 频率 (Hz), 例如 400000, 800000
+     */
+    void setBusClock(uint32_t hz);
+
+    // ── [P2-4] 脏页检测帧渲染 ─────────────────────────────────
+    /**
+     * @brief 脏页检测渲染：仅当帧数据与上一帧不同时才执行 I2C 传输
+     * @param payload 1024 字节 XBM 位图
+     * @note 内部维护前一帧副本，首次调用执行全帧渲染
+     */
+    void renderFrameDirty(uint8_t *payload);
+
 private:
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C m_u8g2;  ///< U8g2 显示器驱动实例
     uint8_t m_brightness;                          ///< 当前亮度值缓存
+
+    // [P2-4] 脏页检测
+    uint8_t m_prevFrame[1024];  ///< 上一帧数据（用于 XOR 对比）
+    bool    m_hasPrevFrame;     ///< 是否已有前一帧（首次全帧渲染）
 };
 
 #endif // DISPLAY_MANAGER_H

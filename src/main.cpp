@@ -15,6 +15,7 @@
  */
 
 #include <Arduino.h>
+#include "DebugMacros.h"  // [P3-6]
 #include <ESP8266WiFi.h>
 #include "NetworkManager.h"
 #include "WebServerManager.h"
@@ -27,6 +28,17 @@
 NetworkManager  network;
 WebServerManager webServer;
 DisplayManager  display;
+
+/* ======================================================================== */
+/*  [P1-1] 单帧覆盖缓冲 — WebSocket 回调快速写入，loop() 逐帧出队渲染         */
+/*  始终只保留最新一帧，天然丢弃过期帧，避免"倒带式补帧"                         */
+/* ======================================================================== */
+
+static uint8_t  s_pendingFrame[1024];
+static uint32_t s_pendingSeq  = 0;
+static bool     s_hasNewFrame = false;
+
+static uint32_t s_lastFrameTime = 0;  // [P3-2] 看门狗
 
 /* ======================================================================== */
 /*  AP 客户端事件监听器（静态句柄，防止 Lambda 捕获被过早释放）                */
@@ -59,7 +71,10 @@ void setup()
     Serial.println(F("[MAIN] Phase 2/4: 网络内核启动"));
     network.begin(
         [](uint8_t *payload, size_t /*length*/) {
-            display.renderFrame(payload);
+            // [P1-1] 仅写入缓冲，渲染在 loop() 中异步执行
+            memcpy(s_pendingFrame, payload, 1024);
+            s_hasNewFrame = true;
+            s_lastFrameTime = millis();  // [P3-2] 看门狗喂狗
         },
         [](uint8_t brightness) {
             display.setBrightness(brightness);
@@ -114,10 +129,21 @@ void setup()
 /*  loop                                                                     */
 /* ======================================================================== */
 
+
+/* ======================================================================== */
+/*  renderPendingFrame() — 从单帧缓冲出队并渲染（零帧不画）                 */
+/* ======================================================================== */
+static void renderPendingFrame() {
+    if (!s_hasNewFrame) return;
+    display.renderFrame(s_pendingFrame);
+    s_hasNewFrame = false;
+}
+
 void loop()
 {
     network.loop();   // WebSocket 帧接收 + 指令解析 + ACK 锁步
     webServer.loop(); // HTTP 路由 + DNS 劫持
+    renderPendingFrame();  // [P1-1] 异步渲染最新帧
 
     /* ---- 每30秒输出系统心跳 ------------------------------------------ */
     static uint32_t s_lastBeat = 0;
@@ -128,6 +154,17 @@ void loop()
                       now / 1000, ESP.getFreeHeap(),
                       NetworkManager::isAPMode() ? "AP" : "STA",
                       network.getClientCount());
+    }
+
+
+    /* ── [P3-2] 看门狗：超过 10 秒无帧 → 软复位 ──────────────
+     *  仅在推流活跃时（hasNewFrame 曾被设置过）启用，
+     *  避免刚启动时误触发。
+     */
+    if (s_lastFrameTime > 0 && (millis() - s_lastFrameTime > 10000)) {
+        EVENT_LOG("[MAIN] 看门狗：10 秒无帧，软复位...\n");
+        delay(100);
+        ESP.restart();
     }
 
     /* ── 防卡死：确保 ESP8266 WiFi 射频栈能及时处理 TCP ACK ──────────

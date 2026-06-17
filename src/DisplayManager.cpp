@@ -15,6 +15,7 @@
 DisplayManager::DisplayManager()
     : m_u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE)
     , m_brightness(BRIGHTNESS_DEFAULT)
+    , m_hasPrevFrame(false)
 {
 }
 
@@ -103,4 +104,53 @@ void DisplayManager::showStatus(const char *text)
 uint8_t DisplayManager::getBrightness() const
 {
     return m_brightness;
+}
+
+/* ========================================================================== */
+/*  setBusClock() — [P2-4] 运行时调整 I2C 频率                                  */
+/* ========================================================================== */
+
+void DisplayManager::setBusClock(uint32_t hz)
+{
+    m_u8g2.setBusClock(hz);
+    Serial.printf("[DISP] I2C 速率已切换至 %u Hz\n", hz);
+}
+
+/* ========================================================================== */
+/*  renderFrameDirty() — [P2-4] 脏页检测渲染                                    */
+/* ========================================================================== */
+
+void DisplayManager::renderFrameDirty(uint8_t *payload)
+{
+    if (!m_hasPrevFrame)
+    {
+        // 首帧：全量渲染并保存基准
+        m_u8g2.drawXBM(0, 0, FRAME_WIDTH, FRAME_HEIGHT, payload);
+        m_u8g2.sendBuffer();
+        memcpy(m_prevFrame, payload, 1024);
+        m_hasPrevFrame = true;
+        return;
+    }
+
+    // XOR 对比：检测是否有变化
+    bool dirty = false;
+    for (uint16_t i = 0; i < 1024; i++)
+    {
+        if (payload[i] != m_prevFrame[i])
+        {
+            dirty = true;
+            break;
+        }
+    }
+
+    if (!dirty)
+    {
+        // 帧无变化，跳过 I2C 传输（节省总线带宽）
+        return;
+    }
+
+    // 有变化：全帧刷新（后续可优化为按 Page 局部刷新）
+    m_u8g2.drawXBM(0, 0, FRAME_WIDTH, FRAME_HEIGHT, payload);
+    m_u8g2.sendBuffer();
+    memcpy(m_prevFrame, payload, 1024);
 }

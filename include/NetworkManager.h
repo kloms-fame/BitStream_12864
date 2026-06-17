@@ -57,7 +57,7 @@ public:
     /* ================================================================== */
 
     static constexpr uint16_t WS_PORT       = 81;
-    static constexpr size_t   FRAME_SIZE    = 1024;
+    static constexpr size_t   FRAME_SIZE    = 1028;  // [P0-2] 4B seq + 1024B XBM
     static constexpr uint8_t  BRIGHTNESS_MIN = 0;
     static constexpr uint8_t  BRIGHTNESS_MAX = 255;
     static constexpr uint8_t  MAX_RETRIES    = 3;

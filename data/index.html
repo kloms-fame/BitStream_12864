@@ -247,6 +247,18 @@ canvas{
     <span class="dot"></span>
     <span class="card-title">Preview · 128×64</span>
   </div>
+    <!-- [P1-2] 实时推流指标 -->
+    <div class="card" id="metricsCard" style="display:none">
+      <div class="card-header"><span class="dot" id="metricsDot"></span><span class="card-title">推流指标</span><span class="fps-badge" id="fpsDisplay">0 fps</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.55rem;color:var(--text-secondary)">
+        <span>窗口: <b id="mWindow" style="color:var(--accent)">0/3</b></span>
+        <span>发送: <b id="mSent" style="color:var(--accent)">0</b></span>
+        <span>丢帧: <b id="mDropped" style="color:var(--danger)">0</b></span>
+        <span>节流: <b id="mThrottled" style="color:var(--warn)">0</b></span>
+        <span>RTT: <b id="mRtt" style="color:var(--accent)">--</b>ms</span>
+        <span>已确认: <b id="mAcked" style="color:var(--accent)">0</b></span>
+      </div>
+    </div>
   <canvas id="previewCanvas" width="128" height="64"></canvas>
   <canvas id="hiddenCanvas" width="128" height="64" class="hidden"></canvas>
 </div>
@@ -286,6 +298,12 @@ canvas{
     <input type="range" class="slider" id="speedSlider" min="0.5" max="2.0" value="1.0" step="0.1">
   </div>
 
+  <!-- [P3-1] Audio Sync Offset -->
+  <div class="slider-group">
+    <div class="slider-label"><span>Sync</span><span class="slider-val" id="syncVal">0ms</span></div>
+    <input type="range" class="slider" id="syncOffset" min="-200" max="200" value="0" step="10">
+  </div>
+
   <div class="checks">
     <label class="check-row"><input type="checkbox" id="checkGreenScreen"> Green Screen</label>
     <label class="check-row"><input type="checkbox" id="checkInvert"> Invert</label>
@@ -312,6 +330,7 @@ canvas{
 <!-- ================================================================== -->
 <!--  JavaScript — ES6 Class Architecture (V2.1)                         -->
 <!-- ================================================================== -->
+  <script src="stream-engine.js"></script>
 <script>
 class BitStreamApp {
   constructor() {
@@ -354,6 +373,7 @@ class BitStreamApp {
     this.speed           = 1.0;
     this.greenScreen     = false;
     this.invert          = false;
+    this.syncOffset      = 0;    // [P3-1] audio sync offset
 
     /* ---- 倍速防抖 ---- */
     this._speedChanging  = false;   // 用户正在拖动滑块，禁止 ratechange 反向覆盖
@@ -368,6 +388,14 @@ class BitStreamApp {
     this.fpsLastTime     = 0;
     this.rafId           = null;
     this._lastAckTime    = 0;       // ACK 监控（不阻塞发送）
+
+    /* ---- 流控协议 [P0-2] ---- */
+    this.nextSeq         = 0;
+    this.inflight        = 0;
+    this.lastAcked       = -1;
+    this.droppedFrames   = 0;
+    this.throttledFrames = 0;
+    this.lastSendTime    = 0;
 
     /* ---- 视频文件 ---- */
     this.currentVideoURL = null;
@@ -442,11 +470,16 @@ class BitStreamApp {
     };
 
     this.ws.onmessage = (ev) => {
-      if (typeof ev.data === "string" && ev.data === "ACK") {
-        this._lastAckTime = performance.now();  // 仅记录时间用于监控
+      if (typeof ev.data === "string" && ev.data.startsWith("ACK:")) {
+        const seq = parseInt(ev.data.substring(4), 10);
+        this._lastAckTime = performance.now();
+        if (seq > this.lastAcked) {
+          this.inflight -= (seq - this.lastAcked);
+          if (this.inflight < 0) this.inflight = 0;
+          this.lastAcked = seq;
+        }
       }
     };
-  }
 
   /** 断线后 3 秒自动重连 */
   scheduleReconnect() {
@@ -615,6 +648,16 @@ class BitStreamApp {
       this.btnStopStream.classList.add("hidden");
       this.streamDot.classList.add("off");
       this.fpsDisplay.textContent = "0 fps";
+      // [P1-2] 更新实时指标
+      if (this._metricsCard) {
+        const m = this._metricsCard;
+        document.getElementById("mWindow").textContent = this.inflight + "/3";
+        document.getElementById("mSent").textContent = this.frameSentCount;
+        document.getElementById("mDropped").textContent = this.droppedFrames;
+        document.getElementById("mThrottled").textContent = this.throttledFrames;
+        document.getElementById("mAcked").textContent = this.lastAcked;
+        document.getElementById("mRtt").textContent = "--";
+      }
     }
     // 按钮可用条件：已连接 + 已选文件
     const canStream = this.connected && this.videoPlayer.src && this.videoPlayer.src !== window.location.href;
@@ -637,8 +680,15 @@ class BitStreamApp {
     this.fpsAccum = 0;
     this.fpsLastTime = 0;
     this._lastAckTime = 0;
+    this.nextSeq = 0;
+    this.inflight = 0;
+    this.lastAcked = -1;
+    this.droppedFrames = 0;
+    this.throttledFrames = 0;
+    this.lastSendTime = 0;
 
     this.videoPlayer.play();
+    document.getElementById("metricsCard").style.display = "";
     this.updateStreamUI();
 
     const self = this;
@@ -651,6 +701,7 @@ class BitStreamApp {
   stopStream() {
     if (!this.streaming) return;
     console.log("[Stream] STOP | frames: " + this.frameSentCount);
+    document.getElementById("metricsCard").style.display = "none";
     this.streaming = false;
     if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
     if (this.videoPlayer && !this.videoPlayer.paused) this.videoPlayer.pause();
@@ -661,12 +712,10 @@ class BitStreamApp {
     if (!this.streaming) return;
     if (this.seeking) return;
 
-    // 安全检查：超过 3 秒无 ACK → ESP 可能离线
-    if (this._lastAckTime && (timestamp - this._lastAckTime > 3000)) {
-      console.warn("[Stream] ESP 3s 无 ACK，暂停发送");
-      return;
-    }
-
+    // [P0-2] 滑动窗口背压 + 节流
+    const now = performance.now();
+    if (this.inflight >= 3) { this.droppedFrames++; return; }  // 窗口满 → 丢弃
+    if (now - this.lastSendTime < 50) { this.throttledFrames++; return; }  // 20fps 节流
     const ct = this.videoPlayer.currentTime;
     // 仅在视频时间推进时才发送新帧（天然帧率限制）
     if (ct === this.lastVideoTime && !this.justSeeked) return;
@@ -679,10 +728,10 @@ class BitStreamApp {
       this.fpsLastTime = timestamp;
     }
 
-    this.processAndSendFrame();
+    this.processAndSendFrame(now);
   }
 
-  processAndSendFrame() {
+  processAndSendFrame(now) {
     const video = this.videoPlayer;
     if (!video || video.readyState < 2) return;
 
@@ -734,13 +783,23 @@ class BitStreamApp {
     }
     this.previewCtx.putImageData(pd, 0, 0);
 
-    /* Step 4: ACK lockstep send */
+    /* Step 4: 滑动窗口背压发送 [P0-2] */
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.stopStream();
       return;
     }
-    this.ws.send(xbm.buffer);
+
+    // 打包 1028 字节帧：4B seq (LE) + 1024B XBM
+    const buf = new ArrayBuffer(1028);
+    const view = new DataView(buf);
+    view.setUint32(0, this.nextSeq, true);
+    new Uint8Array(buf, 4, 1024).set(xbm);
+
+    this.ws.send(buf);
+    this.inflight++;
+    this.nextSeq++;
     this.frameSentCount++;
+    this.lastSendTime = now;
     this.lastVideoTime = video.currentTime;
     this.justSeeked = false;
   }

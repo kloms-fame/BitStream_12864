@@ -13,6 +13,7 @@
  */
 
 #include "NetworkManager.h"
+#include "DebugMacros.h"  // [P3-6]
 
 /* ========================================================================== */
 /*  静态成员初始化                                                             */
@@ -247,9 +248,14 @@ void NetworkManager::startAPMode()
     const IPAddress subnet(255, 255, 255, 0);
 
     WiFi.softAPConfig(apIP, apIP, subnet);
-    WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);  // 无密码，信道 1，隐藏关闭，最大 4 客户端
-
-    Serial.printf("[NET] AP 热点已开放: SSID=\"%s\" (无密码)\n", AP_SSID);
+    // [P3-4] 可选 AP 密码，通过 platformio.ini 的 AP_PASSWORD 宏配置
+#ifdef AP_PASSWORD
+    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    EVENT_LOG("[NET] AP 模式已启动 | SSID: %s | 密码: (已设置)\n", AP_SSID);
+#else
+    WiFi.softAP(AP_SSID, nullptr, 1, false, 4);
+    EVENT_LOG("[NET] AP 模式已启动 | SSID: %s | 无密码\n", AP_SSID);
+#endif
     Serial.printf("[NET] IP: %s\n", apIP.toString().c_str());
 
     s_mode = Mode::AP_CONFIG;
@@ -291,26 +297,40 @@ void NetworkManager::startWebSocket()
                 break;
             }
 
-            /* ---------------------------------------------------------- */
-            /*  二进制帧 — 推流数据入口                                        */
-            /* ---------------------------------------------------------- */
             case WStype_BIN:
             {
-                if (length == FRAME_SIZE)
+                uint32_t seq = 0;
+                uint8_t *xbm = nullptr;
+
+                if (length == 1028)  // 新协议：4B seq (小端) + 1024B XBM
                 {
-                    if (m_onFrame)
-                    {
-                        m_onFrame(payload, length);
-                    }
-                    m_webSocket.sendTXT(clientNum, "ACK");
+                    seq = payload[0] | (static_cast<uint32_t>(payload[1]) << 8)
+                        | (static_cast<uint32_t>(payload[2]) << 16)
+                        | (static_cast<uint32_t>(payload[3]) << 24);
+                    xbm = payload + 4;
+                }
+                else if (length == 1024)  // 旧协议兼容：无序号
+                {
+                    seq = 0;
+                    xbm = payload;
                 }
                 else
                 {
                     Serial.printf("[NET] 客户端 #%u 异常 BIN 帧: "
-                                  "期望 %u 字节，实际 %u 字节 | 首字节: 0x%02X\n",
-                                  clientNum, FRAME_SIZE, length,
+                                  "期望 1024/1028 字节，实际 %u 字节 | 首字节: 0x%02X\n",
+                                  clientNum, length,
                                   length > 0 ? payload[0] : 0);
+                    break;
                 }
+
+                if (m_onFrame && xbm)
+                {
+                    m_onFrame(xbm, 1024);
+                }
+
+                char ackBuf[20];
+                snprintf(ackBuf, sizeof(ackBuf), "ACK:%u", seq);
+                m_webSocket.sendTXT(clientNum, ackBuf);
                 break;
             }
 

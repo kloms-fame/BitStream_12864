@@ -194,6 +194,7 @@ canvas{
 <!-- ================================================================== -->
 <!--  JavaScript 核心引擎                                                   -->
 <!-- ================================================================== -->
+  <script src="stream-engine.js"></script>
 <script>
 'use strict';
 
@@ -235,9 +236,17 @@ let fpsAccum   = 0;
 let fpsLastTime= 0;
 let rafId      = null;
 let speed      = 1.0;
-let initBurst  = 0;
+// [P0-1] initBurst removed — always zero, dead code
 let speedChanging = false;
-let ackTimeoutId = null;
+let isEspReady = false; // [P0-1] was ackTimeoutId (dead code)
+
+/* ---- 流控协议 [P0-2] ---- */
+let nextSeq        = 0;
+let inflight       = 0;
+let lastAcked      = -1;
+let droppedFrames  = 0;
+let throttledFrames = 0;
+let lastSendTime   = 0;
 
 /* ============================== WIFI CONFIG ========================= */
 function doSetWiFi() {
@@ -267,6 +276,7 @@ function connectWS() {
 
   ws.onopen = () => {
     connected = true;
+    isEspReady = true;
     streamStatus.textContent = 'WebSocket 已连接';
     streamStatus.className = 'status on';
     streamDot.classList.remove('off');
@@ -277,6 +287,7 @@ function connectWS() {
 
   ws.onclose = () => {
     connected = false;
+    isEspReady = false;
     if (streaming) stopStream();
     streamStatus.textContent = 'WebSocket 已断开';
     streamStatus.className = 'status off';
@@ -290,11 +301,14 @@ function connectWS() {
   };
 
   ws.onmessage = (e) => {
-    if (typeof e.data === 'string') {
-      if (e.data === 'ACK') {
-        lastAckTime = performance.now();
+    if (typeof e.data === 'string' && e.data.startsWith('ACK:')) {
+      const seq = parseInt(e.data.substring(4), 10);
+      lastAckTime = performance.now();
+      if (seq > lastAcked) {
+        inflight -= (seq - lastAcked);
+        if (inflight < 0) inflight = 0;
+        lastAcked = seq;
       }
-      // 'OK' from brightness command — silent
     }
   };
 }
@@ -364,8 +378,15 @@ function startStream() {
   fpsAccum     = 0;
   fpsLastTime  = 0;
   lastAckTime  = 0;
+  nextSeq      = 0;
+  inflight     = 0;
+  lastAcked    = -1;
+  droppedFrames = 0;
+  throttledFrames = 0;
+  lastSendTime = 0;
 
   video.play();
+  document.getElementById("metricsCard").style.display = "";
   updateStreamButton();
   streamStatus.textContent = '推流中...';
   streamStatus.className = 'status on';
@@ -384,28 +405,44 @@ function stopStream() {
   streamStatus.className = 'status off';
   streamDot.classList.add('off');
   fpsDisplay.textContent = '0 fps';
+  document.getElementById("metricsCard").style.display = "none";
 }
 
 /* ============================== TICK ================================ */
 function tick(timestamp) { if (seeking) return; if (!streaming || !isEspReady) return;
 
+  // [P0-2] 滑动窗口背压 + 节流
+  const now = performance.now();
+  if (inflight >= 3) { droppedFrames++; return; }
+  if (now - lastSendTime < 50) { throttledFrames++; return; }
+
   // 跳过重复帧（播放器未推进）
   const ct = video.currentTime;
-  if (initBurst <= 0 && ct === lastVideoTime && !justSeeked) return;
+  if (ct === lastVideoTime && !justSeeked) return;
 
   fpsAccum++;
   if (!fpsLastTime) fpsLastTime = timestamp;
   if (timestamp - fpsLastTime >= 1000) {
-    fpsDisplay.textContent = fpsAccum + ' fps';
+    fpsDisplay.textContent = fpsAccum + " fps";
+
+  // [P1-2] 更新实时指标
+  if (document.getElementById("metricsCard").style.display !== "none") {
+    document.getElementById("mWindow").textContent = inflight + "/3";
+    document.getElementById("mSent").textContent = frameSentCount;
+    document.getElementById("mDropped").textContent = droppedFrames;
+    document.getElementById("mThrottled").textContent = throttledFrames;
+    document.getElementById("mAcked").textContent = lastAcked;
+    document.getElementById("mRtt").textContent = "--";
+  }
     fpsAccum = 0;
     fpsLastTime = timestamp;
   }
 
-  processAndSend();
+  processAndSend(now);
 }
 
 /* ============================== FRAME PROCESSOR ===================== */
-function processAndSend() {
+function processAndSend(now) {
   if (video.readyState < 2) return;
 
   /* Step 1: Draw video → hidden canvas */
@@ -458,15 +495,26 @@ function processAndSend() {
   }
   previewCtx.putImageData(pd, 0, 0);
 
-  /* Step 4: WebSocket send + ACK lockstep */
+  /* Step 4: 滑动窗口背压发送 [P0-2] */
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     stopStream();
     return;
   }
-  ws.send(xbm.buffer);
+
+  // 打包 1028 字节帧：4B seq (LE) + 1024B XBM
+  const buf = new ArrayBuffer(1028);
+  const view = new DataView(buf);
+  view.setUint32(0, nextSeq, true);
+  new Uint8Array(buf, 4, 1024).set(xbm);
+
+  ws.send(buf);
+  inflight++;
+  nextSeq++;
   frameSentCount++;
+  lastSendTime = now;
 
   lastVideoTime = video.currentTime; justSeeked = false;
+}
 }
 
 // 【防抖】seeking: 暂停帧发送，防止拖拽进度条时 WebSocket 缓冲区溢出
