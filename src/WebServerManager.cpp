@@ -102,6 +102,7 @@ void WebServerManager::begin()
         if (LittleFS.exists(engineFile)) {
             File f = LittleFS.open(engineFile, "r");
             if (f) {
+                m_httpServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
                 m_httpServer.streamFile(f, "application/javascript; charset=utf-8");
                 f.close();
                 return;
@@ -190,6 +191,7 @@ void WebServerManager::serveModePage()
         File f = LittleFS.open(pageFile, "r");
         if (f)
         {
+            m_httpServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
             m_httpServer.streamFile(f, "text/html; charset=utf-8");
             f.close();
             return;
