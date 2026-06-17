@@ -122,6 +122,7 @@ void WebServerManager::serveRoot()
         const String url = String(REDIRECT_BASE_URL)
                          + "?ip=" + WiFi.localIP().toString();
 
+        Serial.printf("[WEB] STA 302 → %s\n", url.c_str());
         m_httpServer.sendHeader("Location", url, true);
         m_httpServer.send(302, "text/plain", "");
     }
@@ -181,7 +182,7 @@ void WebServerManager::serveOfflinePage()
 
 void WebServerManager::redirectToRoot()
 {
-    Serial.printf("[WEB] 命中路由: %s\n", m_httpServer.uri().c_str());
+    Serial.printf("[WEB] 命中路由: %s → 302 http://192.168.4.1/\n", m_httpServer.uri().c_str());
 
     m_httpServer.sendHeader("Location", "http://192.168.4.1/", true);
     m_httpServer.send(302, "text/plain", "");

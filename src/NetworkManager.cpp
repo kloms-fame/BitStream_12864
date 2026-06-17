@@ -339,10 +339,31 @@ void NetworkManager::startWebSocket()
             }
 
             /* ---------------------------------------------------------- */
-            /*  PING/PONG/ERROR — 静默忽略                                   */
+            /*  PING/PONG/ERROR/FRAGMENT — 全事件日志                        */
             /* ---------------------------------------------------------- */
             default:
+            {
+                const char *typeName = "UNKNOWN";
+                switch (type)
+                {
+                case WStype_ERROR:                typeName = "ERROR";              break;
+                case WStype_PING:                 typeName = "PING";               break;
+                case WStype_PONG:                 typeName = "PONG";               break;
+                case WStype_FRAGMENT_BIN_START:   typeName = "FRAGMENT_BIN_START"; break;
+                case WStype_FRAGMENT_TEXT_START:  typeName = "FRAGMENT_TEXT_START";break;
+                case WStype_FRAGMENT:             typeName = "FRAGMENT";           break;
+                case WStype_FRAGMENT_FIN:         typeName = "FRAGMENT_FIN";       break;
+                default: break;
+                }
+                Serial.printf("[NET] 客户端 #%u WS事件: %s (type=%d, len=%u)\n",
+                              clientNum, typeName, static_cast<int>(type), length);
+                if (type == WStype_ERROR && payload && length > 0)
+                {
+                    Serial.printf("[NET] 客户端 #%u WS错误payload: %.*s\n",
+                                  clientNum, static_cast<int>(length), payload);
+                }
                 break;
+            }
             }
         });
 }
