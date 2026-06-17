@@ -257,6 +257,14 @@ input[type=range]::-moz-range-thumb{
 /* ====================================================================== */
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .pulse{animation:pulse 2s infinite}
+
+.btn.stream{border-color:#00cc66;color:#00cc66}
+.btn.stream:hover:not(:disabled){background:#00cc66;color:var(--bg-base);box-shadow:0 0 14px rgba(0,204,102,.3)}
+.status-badge.streaming{border-color:#00cc66;color:#00cc66;box-shadow:0 0 8px rgba(0,204,102,.12)}
+.fps-display{font-family:var(--font-mono);font-size:.65rem;color:var(--accent);background:var(--accent-dim);padding:3px 10px;border-radius:12px;letter-spacing:1px;visibility:hidden}
+.fps-display.show{visibility:visible}
+@keyframes neonPulse{0%,100%{box-shadow:0 0 4px var(--accent)}50%{box-shadow:0 0 16px var(--accent)}}
+.streaming-glow{animation:neonPulse 1.5s ease-in-out infinite}
 </style>
 </head>
 <body>
@@ -269,7 +277,9 @@ input[type=range]::-moz-range-thumb{
   &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9600;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600; &#9608;&#9600;&#9600;
   &#9608;&#9600;&#9604; &#9608;&#9600;&#9604;   &#9608;  &#9608;&#9600;&#9604; &#9608;&#9600;&#9604; &#9608;&#9600;&#9600; &#9608;  &#9608;&#9600;&#9604;
   &#9608;&#9600;&#9600; &#9608;&#9600;&#9600;   &#9608;  &#9608;&#9600;&#9600; &#9608;&#9600;  &#9608;&#9600;&#9600; &#9608;&#9600; &#9608;&#9600;&#9600;
-  </div>
+  
+    <button class="btn stream" id="btnStream" disabled>Start Stream</button>
+    <button class="btn danger" id="btnStopStream" disabled>Stop</button></div>
   <h1>BitStream V2</h1>
   <div class="ver">ESP8266 OLED Streaming Console</div>
 </div>
@@ -297,9 +307,11 @@ input[type=range]::-moz-range-thumb{
 <!-- ====================================================================== -->
 <div class="card" id="mediaCard">
   <div class="card-header">
-    <span class="dot"></span>
+    <span class="dot" id="streamDot"></span>
     <span class="card-title">&#9654; Stream</span>
-  </div>
+  
+    <span class="status-badge" id="streamBadge">IDLE</span>
+    <span class="fps-display" id="fpsDisplay">0 fps</span></div>
   <div class="media-grid">
     <div>
       <video id="videoPlayer" muted playsinline></video>
@@ -378,391 +390,389 @@ input[type=range]::-moz-range-thumb{
 <!-- ====================================================================== -->
 <script>
 /* ====================================================================== */
-/*  BitStreamApp — 应用主类                                                */
+/*  BitStreamApp — ES6 应用主类 + StreamEngine                             */
 /* ====================================================================== */
 class BitStreamApp {
-
-  /* -- 构造函数：查询 DOM、初始化状态 --------------------------------- */
   constructor() {
-    /* DOM 引用 */
-    this.ipInput         = document.getElementById('''ipInput''');
-    this.btnConnect      = document.getElementById('''btnConnect''');
-    this.btnDisconnect   = document.getElementById('''btnDisconnect''');
-    this.connDot         = document.getElementById('''connDot''');
-    this.connBadge       = document.getElementById('''connBadge''');
-    this.pingDisplay     = document.getElementById('''pingDisplay''');
-    this.videoPlayer     = document.getElementById('''videoPlayer''');
-    this.btnSelectFile   = document.getElementById('''btnSelectFile''');
-    this.fileInput       = document.getElementById('''fileInput''');
-    this.fileName        = document.getElementById('''fileName''');
-    this.previewCanvas   = document.getElementById('''previewCanvas''');
-    this.previewCtx      = this.previewCanvas.getContext('''2d'',{willReadFrequently:true});
-    this.hiddenCanvas    = document.getElementById('''hiddenCanvas''');
-    this.hiddenCtx       = this.hiddenCanvas.getContext('''2d'',{willReadFrequently:true});
-    this.thresholdSlider = document.getElementById('''thresholdSlider''');
-    this.thresholdVal    = document.getElementById('''thresholdVal''');
-    this.brightnessSlider= document.getElementById('''brightnessSlider''');
-    this.brightnessVal   = document.getElementById('''brightnessVal''');
-    this.speedSlider     = document.getElementById('''speedSlider''');
-    this.speedVal        = document.getElementById('''speedVal''');
-    this.checkGreenScreen= document.getElementById('''checkGreenScreen''');
-    this.checkInvert     = document.getElementById('''checkInvert''');
+    /* ---- DOM ---- */
+    this.ipInput         = document.getElementById("ipInput");
+    this.btnConnect      = document.getElementById("btnConnect");
+    this.btnDisconnect   = document.getElementById("btnDisconnect");
+    this.connDot         = document.getElementById("connDot");
+    this.connBadge       = document.getElementById("connBadge");
+    this.pingDisplay     = document.getElementById("pingDisplay");
+    this.videoPlayer     = document.getElementById("videoPlayer");
+    this.btnSelectFile   = document.getElementById("btnSelectFile");
+    this.fileInput       = document.getElementById("fileInput");
+    this.fileName        = document.getElementById("fileName");
+    this.previewCanvas   = document.getElementById("previewCanvas");
+    this.previewCtx      = this.previewCanvas.getContext("2d",{willReadFrequently:true});
+    this.hiddenCanvas    = document.getElementById("hiddenCanvas");
+    this.hiddenCtx       = this.hiddenCanvas.getContext("2d",{willReadFrequently:true});
+    this.thresholdSlider = document.getElementById("thresholdSlider");
+    this.thresholdVal    = document.getElementById("thresholdVal");
+    this.brightnessSlider= document.getElementById("brightnessSlider");
+    this.brightnessVal   = document.getElementById("brightnessVal");
+    this.speedSlider     = document.getElementById("speedSlider");
+    this.speedVal        = document.getElementById("speedVal");
+    this.checkGreenScreen= document.getElementById("checkGreenScreen");
+    this.checkInvert     = document.getElementById("checkInvert");
+    this.btnStream       = document.getElementById("btnStream");
+    this.btnStopStream   = document.getElementById("btnStopStream");
+    this.streamBadge     = document.getElementById("streamBadge");
+    this.fpsDisplay      = document.getElementById("fpsDisplay");
+    this.streamDot       = document.getElementById("streamDot");
 
-    /* 运行时状态 */
+    /* ---- 网络状态 ---- */
     this.ws              = null;
     this.currentVideoURL = null;
     this.connected       = false;
-    this.pingInterval    = null;
-    this.pingStart       = 0;
 
-    /* 控制参数 */
+    /* ---- 控制参数 ---- */
     this.threshold       = 128;
     this.hwBrightness    = 255;
     this.speed           = 1.0;
     this.greenScreen     = false;
     this.invert          = false;
 
-    console.log('''[BitStreamApp] Constructor complete — DOM references resolved'');
+    /* ================================================================ */
+    /*  StreamEngine state                                              */
+    /* ================================================================ */
+    this.streaming       = false;
+    this.isEspReady      = true;
+    this.ackTimeoutId    = null;
+    this.lastVideoTime   = -1;
+    this.seeking         = false;
+    this.justSeeked      = false;
+    this.frameSentCount  = 0;
+    this.fpsAccum        = 0;
+    this.fpsLastTime     = 0;
+    this.rafId           = null;
+
+    console.log("[BitStreamApp] Constructor complete");
   }
 
-  /* ====================================================================== */
-  /*  init() — 应用入口：解析 URL → 绑定事件 → 设置初始状态                   */
-  /* ====================================================================== */
   init() {
-    console.log('''[BitStreamApp] init() started''');
-
-    /* 1. 从 URL 解析设备 IP */
+    console.log("[BitStreamApp] init()");
     this.parseURLParams();
-
-    /* 2. 绑定所有 UI 事件 */
     this.bindConnectionEvents();
     this.bindFileEvents();
+    this.bindStreamEvents();
     this.bindControlEvents();
-
-    /* 3. 初始化 UI 状态 */
     this.updateConnectionUI();
     this.updateControlDisplay();
-
-    console.log('''[BitStreamApp] init() complete — ready for user interaction'');
+    this.updateStreamUI();
+    console.log("[BitStreamApp] Ready");
   }
 
-  /* ====================================================================== */
-  /*  parseURLParams() — 从 ?ip=xxx 自动填充 IP 输入框                       */
-  /* ====================================================================== */
   parseURLParams() {
-    const params = new URLSearchParams(window.location.search);
-    const ip = params.get('''ip''');
-    if (ip) {
-      this.ipInput.value = ip;
-      console.log(`[BitStreamApp] URL param detected: ip=${ip}`);
-    } else {
-      console.log('''[BitStreamApp] No ?ip= param in URL'');
-    }
+    const p = new URLSearchParams(window.location.search);
+    const ip = p.get("ip");
+    if (ip) { this.ipInput.value = ip; console.log("[BitStreamApp] URL ip=" + ip); }
   }
 
-  /* ====================================================================== */
-  /*  bindConnectionEvents() — 连接 / 断开按钮事件                           */
-  /* ====================================================================== */
   bindConnectionEvents() {
-    this.btnConnect.addEventListener('''click'', () => {
+    this.btnConnect.addEventListener("click", () => {
       const ip = this.ipInput.value.trim();
-      if (!ip) {
-        console.warn('''[BitStreamApp] Connect clicked but IP is empty'');
-        return;
-      }
-      console.log(`[BitStreamApp] Connecting to ws://${ip}:81 ...`);
+      if (!ip) return;
+      console.log("[BitStreamApp] Connect: ws://" + ip + ":81");
       this.connectWebSocket(ip);
     });
-
-    this.btnDisconnect.addEventListener('''click'', () => {
-      console.log('''[BitStreamApp] Disconnect requested by user'');
-      this.disconnectWebSocket();
+    this.btnDisconnect.addEventListener("click", () => this.disconnectWebSocket());
+    this.ipInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.btnConnect.click();
     });
-
-    /* Enter 键快捷连接 */
-    this.ipInput.addEventListener('''keydown'', (e) => {
-      if (e.key === ''''Enter'''') {
-        console.log('''[BitStreamApp] Enter key pressed in IP input'');
-        this.btnConnect.click();
-      }
-    });
-
-    console.log('''[BitStreamApp] Connection events bound: click, keydown(Enter)'');
   }
 
-  /* ====================================================================== */
-  /*  connectWebSocket(ip) — 建立 WebSocket 连接                             */
-  /* ====================================================================== */
   connectWebSocket(ip) {
-    /* 先断开已有连接 */
-    if (this.ws) {
-      console.log('''[BitStreamApp] Closing previous WebSocket before reconnect'');
-      this.disconnectWebSocket();
-    }
-
-    const url = `ws://${ip}:81`;
-    console.log(`[BitStreamApp] WebSocket connecting: ${url}`);
-
-    try {
-      this.ws = new WebSocket(url);
-    } catch (err) {
-      console.error(`[BitStreamApp] WebSocket construction failed:`, err);
-      return;
-    }
-
+    if (this.ws) this.disconnectWebSocket();
+    const url = "ws://" + ip + ":81";
+    try { this.ws = new WebSocket(url); }
+    catch (err) { console.error("[BitStreamApp] WS failed", err); return; }
     this.ws.onopen = () => {
-      console.log(`[BitStreamApp] WebSocket OPEN → ${url}`);
-      this.connected = true;
-      this.updateConnectionUI();
-      this.startPing();
+      this.connected = true; this.updateConnectionUI();
     };
-
     this.ws.onclose = (ev) => {
-      console.log(`[BitStreamApp] WebSocket CLOSE — code=${ev.code} reason="${ev.reason}"`);
       this.connected = false;
+      if (this.streaming) this.stopStream();
       this.updateConnectionUI();
-      this.stopPing();
     };
-
-    this.ws.onerror = (ev) => {
-      console.error('''[BitStreamApp] WebSocket ERROR'', ev);
-    };
-
+    this.ws.onerror = () => {};
     this.ws.onmessage = (ev) => {
-      /* 阶段五将在此处理 ACK / OK 等消息 */
-      if (typeof ev.data === ''''string'''') {
-        console.log(`[BitStreamApp] WS msg: "${ev.data}"`);
-        if (ev.data === ''''ACK'''') {
-          /* 锁步确认 — 阶段五实现 */
-        }
+      if (typeof ev.data === "string" && ev.data === "ACK") {
+        this.isEspReady = true;
+        if (this.ackTimeoutId) { clearTimeout(this.ackTimeoutId); this.ackTimeoutId = null; }
       }
     };
   }
 
-  /* ====================================================================== */
-  /*  disconnectWebSocket() — 完全断开 WebSocket                             */
-  /* ====================================================================== */
   disconnectWebSocket() {
-    this.stopPing();
-
+    if (this.streaming) this.stopStream();
     if (this.ws) {
-      console.log('''[BitStreamApp] Closing WebSocket...''');
-      /* 移除事件监听防止泄漏回调 */
-      this.ws.onopen    = null;
-      this.ws.onclose   = null;
-      this.ws.onerror   = null;
-      this.ws.onmessage = null;
-
-      if (this.ws.readyState === WebSocket.OPEN ||
-          this.ws.readyState === WebSocket.CONNECTING) {
-        this.ws.close(1000, ''''User disconnect'''');
-      }
+      this.ws.onopen = this.ws.onclose = this.ws.onerror = this.ws.onmessage = null;
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+        this.ws.close(1000, "disconnect");
       this.ws = null;
     }
-
     this.connected = false;
     this.updateConnectionUI();
-    console.log('''[BitStreamApp] WebSocket fully disposed'');
   }
 
-  /* ====================================================================== */
-  /*  startPing / stopPing — 心跳延迟测量                                    */
-  /* ====================================================================== */
-  startPing() {
-    this.pingDisplay.textContent = ''''...'''';
-    console.log('''[BitStreamApp] Ping measurement started'');
-  }
-
-  stopPing() {
-    this.pingDisplay.textContent = '''''''';
-    console.log('''[BitStreamApp] Ping measurement stopped'');
-  }
-
-  /* ====================================================================== */
-  /*  updateConnectionUI() — 同步连接状态到 DOM                              */
-  /* ====================================================================== */
   updateConnectionUI() {
     if (this.connected) {
-      this.connDot.classList.remove(''''off'''');
-      this.connBadge.classList.remove(''''off''''); this.connBadge.classList.add(''''on'''');
-      this.connBadge.textContent = ''''ONLINE'''';
-
-      this.btnConnect.disabled    = true;
-      this.btnDisconnect.disabled = false;
-      this.ipInput.disabled       = true;
-
-      console.log('''[BitStreamApp] UI → ONLINE state'');
+      this.connDot.classList.remove("off");
+      this.connBadge.classList.remove("off"); this.connBadge.classList.add("on");
+      this.connBadge.textContent = "ONLINE";
+      this.btnConnect.disabled = true; this.btnDisconnect.disabled = false;
+      this.ipInput.disabled = true;
     } else {
-      this.connDot.classList.add(''''off'''');
-      this.connBadge.classList.remove(''''on''''); this.connBadge.classList.add(''''off'''');
-      this.connBadge.textContent = ''''OFFLINE'''';
-
-      this.btnConnect.disabled    = false;
-      this.btnDisconnect.disabled = true;
-      this.ipInput.disabled       = false;
-
-      console.log('''[BitStreamApp] UI → OFFLINE state'');
+      this.connDot.classList.add("off");
+      this.connBadge.classList.remove("on"); this.connBadge.classList.add("off");
+      this.connBadge.textContent = "OFFLINE";
+      this.btnConnect.disabled = false; this.btnDisconnect.disabled = true;
+      this.ipInput.disabled = false;
     }
+    this.updateStreamButtonState();
   }
 
-  /* ====================================================================== */
-  /*  bindFileEvents() — 文件选择 + 防泄漏清理                                */
-  /* ====================================================================== */
   bindFileEvents() {
-    this.btnSelectFile.addEventListener('''click'', () => {
-      console.log('''[BitStreamApp] File select dialog triggered'');
-      this.fileInput.click();
-    });
-
-    this.fileInput.addEventListener('''change'', (e) => {
+    this.btnSelectFile.addEventListener("click", () => this.fileInput.click());
+    this.fileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
-      if (!file) {
-        console.log('''[BitStreamApp] File selection cancelled'');
-        return;
-      }
-
-      console.log(`[BitStreamApp] File selected: "${file.name}" (${(file.size/1024/1024).toFixed(1)} MB)`);
-
-      /* ---- 防泄漏：彻底清理旧视频资源 ---- */
+      if (!file) return;
       this.cleanupVideoResources();
-
-      /* ---- 加载新视频 ---- */
       this.currentVideoURL = URL.createObjectURL(file);
-      console.log(`[BitStreamApp] Blob URL created: ${this.currentVideoURL}`);
-
       this.videoPlayer.src = this.currentVideoURL;
       this.fileName.textContent = file.name;
-
-      this.videoPlayer.addEventListener(''''loadedmetadata''', () => {
-        console.log(`[BitStreamApp] Video metadata loaded: ${this.videoPlayer.videoWidth}x${this.videoPlayer.videoHeight}, ${this.videoPlayer.duration.toFixed(1)}s`);
-      }, { once: true });
-
       this.videoPlayer.load();
-      console.log('''[BitStreamApp] Video load() called'');
     });
-
-    console.log('''[BitStreamApp] File events bound: click → file dialog, change → cleanup + load'');
+    this.videoPlayer.addEventListener("seeking", () => { this.seeking = true; });
+    this.videoPlayer.addEventListener("seeked", () => {
+      this.seeking = false;
+      this.justSeeked = true;
+      this.lastVideoTime = -1;
+      this.processAndSendFrame();
+    });
+    this.videoPlayer.addEventListener("ended", () => {
+      if (this.streaming) this.stopStream();
+    });
   }
 
-  /* ====================================================================== */
-  /*  cleanupVideoResources() — 彻底释放旧视频所有资源（防泄漏核心）           */
-  /* ====================================================================== */
   cleanupVideoResources() {
-    console.log('''[BitStreamApp] cleanupVideoResources() — purging old video''');
-
-    /* 1. 暂停播放 */
-    if (this.videoPlayer && !this.videoPlayer.paused) {
-      this.videoPlayer.pause();
-      console.log('''[BitStreamApp] Video paused'');
-    }
-
-    /* 2. 清除视频源（释放解码器资源） */
-    if (this.videoPlayer) {
-      this.videoPlayer.removeAttribute(''''src'''');
-      this.videoPlayer.load();
-      console.log('''[BitStreamApp] Video src removed + load()'');
-    }
-
-    /* 3. 撤销 Blob URL（释放浏览器内存） */
-    if (this.currentVideoURL) {
-      URL.revokeObjectURL(this.currentVideoURL);
-      console.log(`[BitStreamApp] Blob URL revoked: ${this.currentVideoURL}`);
-      this.currentVideoURL = null;
-    }
-
-    /* 4. 清空预览 Canvas */
-    if (this.previewCtx) {
-      this.previewCtx.clearRect(0, 0, 128, 64);
-    }
-    if (this.hiddenCtx) {
-      this.hiddenCtx.clearRect(0, 0, 128, 64);
-    }
-
-    /* 5. 重置文件名显示 */
-    this.fileName.textContent = ''''No file selected'''';
-
-    /* 6. 清空 file input（允许重新选择同一文件） */
-    this.fileInput.value = '''''''';
-
-    console.log('''[BitStreamApp] Video resources fully purged'');
+    if (this.streaming) this.stopStream();
+    if (this.videoPlayer && !this.videoPlayer.paused) this.videoPlayer.pause();
+    if (this.videoPlayer) { this.videoPlayer.removeAttribute("src"); this.videoPlayer.load(); }
+    if (this.currentVideoURL) { URL.revokeObjectURL(this.currentVideoURL); this.currentVideoURL = null; }
+    if (this.previewCtx) this.previewCtx.clearRect(0, 0, 128, 64);
+    if (this.hiddenCtx) this.hiddenCtx.clearRect(0, 0, 128, 64);
+    this.fileName.textContent = "No file selected";
+    this.fileInput.value = "";
+    this.lastVideoTime = -1;
+    this.seeking = false;
+    this.justSeeked = false;
+    this.updateStreamUI();
   }
 
-  /* ====================================================================== */
-  /*  bindControlEvents() — 滑块 + 复选框事件绑定                             */
-  /* ====================================================================== */
+  bindStreamEvents() {
+    this.btnStream.addEventListener("click", () => this.startStream());
+    this.btnStopStream.addEventListener("click", () => this.stopStream());
+  }
+
   bindControlEvents() {
-    /* -- 二值化阈值 -- */
-    this.thresholdSlider.addEventListener('''input'', () => {
+    this.thresholdSlider.addEventListener("input", () => {
       this.threshold = parseInt(this.thresholdSlider.value);
       this.thresholdVal.textContent = this.threshold;
-      console.log(`[BitStreamApp] Threshold → ${this.threshold}`);
     });
-
-    /* -- OLED 亮度（发送 WebSocket 指令）-- */
-    this.brightnessSlider.addEventListener('''input'', () => {
+    this.brightnessSlider.addEventListener("input", () => {
       this.hwBrightness = parseInt(this.brightnessSlider.value);
       this.brightnessVal.textContent = this.hwBrightness;
-
-      /* 通过 WebSocket 发送亮度指令到 ESP8266 */
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        const cmd = `BRIGHTNESS:${this.hwBrightness}`;
-        this.ws.send(cmd);
-        console.log(`[BitStreamApp] WS sent: "${cmd}"`);
-      } else {
-        console.log(`[BitStreamApp] Brightness set locally (WS not connected): ${this.hwBrightness}`);
-      }
+      if (this.ws && this.ws.readyState === WebSocket.OPEN)
+        this.ws.send("BRIGHTNESS:" + this.hwBrightness);
     });
-
-    /* -- 播放倍速 -- */
-    this.speedSlider.addEventListener('''input'', () => {
+    this.speedSlider.addEventListener("input", () => {
       this.speed = parseFloat(this.speedSlider.value);
-      this.speedVal.textContent = `${this.speed.toFixed(1)}x`;
+      this.speedVal.textContent = this.speed.toFixed(1) + "x";
       this.videoPlayer.playbackRate = this.speed;
-      console.log(`[BitStreamApp] Speed → ${this.speed.toFixed(1)}x`);
     });
-
-    /* -- 绿幕过滤 -- */
-    this.checkGreenScreen.addEventListener('''change'', () => {
+    this.checkGreenScreen.addEventListener("change", () => {
       this.greenScreen = this.checkGreenScreen.checked;
-      console.log(`[BitStreamApp] Green Screen → ${this.greenScreen}`);
     });
-
-    /* -- 反色 -- */
-    this.checkInvert.addEventListener('''change'', () => {
+    this.checkInvert.addEventListener("change", () => {
       this.invert = this.checkInvert.checked;
-      console.log(`[BitStreamApp] Invert → ${this.invert}`);
     });
-
-    console.log('''[BitStreamApp] Control events bound: 3 sliders + 2 checkboxes'');
   }
 
-  /* ====================================================================== */
-  /*  updateControlDisplay() — 初始化控件显示值                              */
-  /* ====================================================================== */
   updateControlDisplay() {
-    this.thresholdVal.textContent    = this.threshold;
-    this.brightnessVal.textContent   = this.hwBrightness;
-    this.speedVal.textContent        = `${this.speed.toFixed(1)}x`;
-    console.log('''[BitStreamApp] Control displays synced to initial values'');
+    this.thresholdVal.textContent = this.threshold;
+    this.brightnessVal.textContent = this.hwBrightness;
+    this.speedVal.textContent = this.speed.toFixed(1) + "x";
+  }
+
+  updateStreamButtonState() {
+    const hasVid = !!this.videoPlayer.src && this.videoPlayer.src !== window.location.href;
+    this.btnStream.disabled = !this.connected || !hasVid || this.streaming;
+    this.btnStopStream.disabled = !this.streaming;
+  }
+
+  updateStreamUI() {
+    if (this.streaming) {
+      this.streamBadge.textContent = "STREAMING";
+      this.streamBadge.className = "status-badge streaming streaming-glow";
+      this.streamDot.classList.remove("off");
+      this.fpsDisplay.classList.add("show");
+    } else {
+      this.streamBadge.textContent = "IDLE";
+      this.streamBadge.className = "status-badge";
+      this.streamDot.classList.add("off");
+      this.fpsDisplay.classList.remove("show");
+      this.fpsDisplay.textContent = "0 fps";
+    }
+    this.updateStreamButtonState();
+  }
+
+  /* ================================================================ */
+  /*  STREAM ENGINE CORE                                              */
+  /* ================================================================ */
+
+  startStream() {
+    if (this.streaming) return;
+    if (!this.connected || !this.videoPlayer.src || this.videoPlayer.src === window.location.href) return;
+    console.log("[Stream] ENGINE START");
+
+    this.streaming = true;
+    this.isEspReady = true;
+    this.lastVideoTime = -1;
+    this.seeking = false;
+    this.justSeeked = false;
+    this.frameSentCount = 0;
+    this.fpsAccum = 0;
+    this.fpsLastTime = 0;
+
+    this.videoPlayer.play();
+    this.updateStreamUI();
+
+    const self = this;
+    this.rafId = requestAnimationFrame(function loop(ts) {
+      self.tick(ts);
+      if (self.streaming) self.rafId = requestAnimationFrame(loop);
+    });
+  }
+
+  stopStream() {
+    if (!this.streaming) return;
+    console.log("[Stream] ENGINE STOP (frames: " + this.frameSentCount + ")");
+    this.streaming = false;
+    this.isEspReady = true;
+    if (this.ackTimeoutId) { clearTimeout(this.ackTimeoutId); this.ackTimeoutId = null; }
+    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+    if (this.videoPlayer && !this.videoPlayer.paused) this.videoPlayer.pause();
+    this.updateStreamUI();
+  }
+
+  tick(timestamp) {
+    if (!this.streaming) return;
+    if (this.seeking) return;
+    if (!this.isEspReady) return;
+
+    const ct = this.videoPlayer.currentTime;
+    if (ct === this.lastVideoTime && !this.justSeeked && !this.videoPlayer.paused) return;
+
+    this.fpsAccum++;
+    if (!this.fpsLastTime) this.fpsLastTime = timestamp;
+    if (timestamp - this.fpsLastTime >= 1000) {
+      this.fpsDisplay.textContent = this.fpsAccum + " fps";
+      this.fpsAccum = 0;
+      this.fpsLastTime = timestamp;
+    }
+
+    this.processAndSendFrame();
+  }
+
+  processAndSendFrame() {
+    const video = this.videoPlayer;
+    if (!video || video.readyState < 2) return;
+
+    /* Step 1: Draw to hidden canvas */
+    this.hiddenCtx.drawImage(video, 0, 0, 128, 64);
+    const imgData = this.hiddenCtx.getImageData(0, 0, 128, 64);
+    const pixels = imgData.data;
+    const xbm = new Uint8Array(1024);
+
+    /* Step 2: Integer grayscale pipeline */
+    const th = this.threshold;
+    const gsFlag = this.greenScreen;
+    const inv = this.invert;
+
+    for (let y = 0; y < 64; y++) {
+      const ro = y * 128 * 4;
+      for (let bx = 0; bx < 16; bx++) {
+        let bv = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const i = ro + (bx * 8 + bit) * 4;
+          const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+
+          let bright;
+          if (gsFlag && g > r * 1.3 && g > b * 1.3) {
+            bright = 0;
+          } else {
+            /* Integer: (R*299 + G*587 + B*114) / 1000 */
+            bright = ((r * 299 + g * 587 + b * 114) / 1000) > th ? 1 : 0;
+          }
+          if (inv) bright ^= 1;
+          if (bright) bv |= (1 << bit);
+        }
+        xbm[y * 16 + bx] = bv;
+      }
+    }
+
+    /* Step 3: Preview */
+    const pd = this.previewCtx.createImageData(128, 64);
+    const pp = pd.data;
+    for (let y = 0; y < 64; y++) {
+      for (let bx = 0; bx < 16; bx++) {
+        const bv = xbm[y * 16 + bx];
+        for (let bit = 0; bit < 8; bit++) {
+          const idx = (y * 128 + bx * 8 + bit) * 4;
+          const v = (bv >> bit) & 1 ? 255 : 0;
+          pp[idx] = pp[idx + 1] = pp[idx + 2] = v;
+          pp[idx + 3] = 255;
+        }
+      }
+    }
+    this.previewCtx.putImageData(pd, 0, 0);
+
+    /* Step 4: ACK lockstep send */
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.stopStream();
+      return;
+    }
+    this.ws.send(xbm.buffer);
+    this.frameSentCount++;
+
+    /* Step 5: Lock + 200ms deadlock timeout */
+    this.isEspReady = false;
+    this.lastVideoTime = video.currentTime;
+    this.justSeeked = false;
+    if (this.ackTimeoutId) clearTimeout(this.ackTimeoutId);
+    const self = this;
+    this.ackTimeoutId = setTimeout(function() {
+      if (!self.isEspReady) {
+        self.isEspReady = true;
+        console.warn("[Stream] ACK timeout 200ms - auto unlock");
+      }
+      self.ackTimeoutId = null;
+    }, 200);
   }
 }
 
-/* ====================================================================== */
-/*  应用启动                                                                */
-/* ====================================================================== */
 const app = new BitStreamApp();
 app.init();
-
-/* 页面卸载清理 */
-window.addEventListener(''''beforeunload'''', () => {
-  console.log('''[BitStreamApp] Page unloading — cleaning up...''');
+window.addEventListener("beforeunload", () => {
+  if (app.streaming) app.stopStream();
   app.disconnectWebSocket();
   app.cleanupVideoResources();
-  console.log('''[BitStreamApp] Cleanup complete. Goodbye.'');
 });
 
-console.log('''[BitStreamApp] Application fully initialized'');
-</script>
 
 </body>
 </html>
