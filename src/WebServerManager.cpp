@@ -2,9 +2,8 @@
  * @file    WebServerManager.cpp
  * @brief   WebServerManager — 静态资源本地化 + DNS 劫持 + Captive Portal
  *
- * @details AP 模式：DNS 劫持 + Captive Portal 精准拦截
- *          STA 模式：仅提供 HTTP 服务
- *          统一路由：GET / 直接从 LittleFS 返回 index.html（或 index.html.gz），
+ * @details AP 模式：DNS 劫持 + Captive Portal + 提供 offline.html（配网表单）
+ *          STA 模式：仅提供 HTTP 服务，返回 index.html（推流控制台）
  *          彻底摒弃 302 重定向至 GitHub Pages 的旧方案，
  *          消除 HTTPS→ws:// Mixed Content 阻断问题。
  */
@@ -13,11 +12,12 @@
 #include "NetworkManager.h"
 
 /* ========================================================================== */
-/*  常量 — 前端控制台路径（优先 .gz 压缩版以节省带宽）                          */
+/*  常量 — 前端页面路径（AP 配网页 / STA 控制台页）                            */
 /* ========================================================================== */
 
-static const char* CONSOLE_PAGE_GZ = "/index.html.gz";
-static const char* CONSOLE_PAGE    = "/index.html";
+static const char* AP_CONFIG_PAGE    = "/offline.html";    // AP 模式：配网 + 连接
+static const char* CONSOLE_PAGE_GZ   = "/index.html.gz";   // STA 模式：完整控制台（压缩）
+static const char* CONSOLE_PAGE      = "/index.html";      // STA 模式：完整控制台（未压缩）
 
 /* ========================================================================== */
 /*  构造函数                                                                  */
@@ -45,16 +45,17 @@ void WebServerManager::begin()
 
     /* ---- 2. HTTP 路由注册 ------------------------------------------------ */
 
-    // 根路由 — 统一从 LittleFS 返回本地控制台页面
-    // （AP 和 STA 模式均走此路由，彻底废弃 302 重定向）
-    m_httpServer.on("/", HTTP_GET, [this]() { serveConsolePage(); });
+    // 根路由 — 根据运行模式分发不同页面
+    //   AP 模式 → offline.html（配网表单 + 默认 IP 192.168.4.1）
+    //   STA 模式 → index.html（完整推流控制台）
+    m_httpServer.on("/", HTTP_GET, [this]() { serveModePage(); });
 
-    // 配网 API（AP 模式下使用）
+    // 配网 API（仅 AP 模式下 offline.html 会调用）
     m_httpServer.on("/api/setwifi", HTTP_POST,
         [this]() { handleSetWiFi(); });
 
     // ── Captive Portal 检测端点 ───────────────────────────────────────
-    // 策略：全部返回配网页内容，让设备浏览器弹出强制门户
+    // 全部 302 重定向至 /，让设备浏览器弹出强制门户
 
     // Android
     m_httpServer.on("/generate_204", HTTP_GET,
@@ -96,7 +97,10 @@ void WebServerManager::begin()
 
     /* ---- 3. 启动 HTTP 服务 ---------------------------------------------- */
     m_httpServer.begin();
-    Serial.printf("[WEB] HTTP 服务已启动 (端口 %u) | 静态页面直出模式\n", HTTP_PORT);
+    if (NetworkManager::isAPMode())
+        Serial.printf("[WEB] HTTP 服务已启动 (端口 %u) | AP 配网模式 → offline.html\n", HTTP_PORT);
+    else
+        Serial.printf("[WEB] HTTP 服务已启动 (端口 %u) | STA 控制台模式 → index.html\n", HTTP_PORT);
 }
 
 /* ========================================================================== */
@@ -115,32 +119,45 @@ void WebServerManager::loop()
 }
 
 /* ========================================================================== */
-/*  路由处理器 — serveConsolePage()                                            */
-/*  @brief 统一控制台页面入口 — 优先返回 .gz 压缩版，回退至 .html               */
+/*  路由处理器 — serveModePage()                                               */
+/*  @brief 根据当前运行模式返回对应页面                                         */
+/*         AP 模式 → offline.html（配网表单，默认 IP 192.168.4.1）              */
+/*         STA 模式 → index.html(.gz)（完整推流控制台）                         */
 /* ========================================================================== */
 
-void WebServerManager::serveConsolePage()
+void WebServerManager::serveModePage()
 {
-    Serial.printf("[WEB] 命中路由: %s → 直出控制台 | 客户端: %s\n",
-                  m_httpServer.uri().c_str(),
-                  m_httpServer.client().remoteIP().toString().c_str());
+    const char* pageName;
+    const char* pageFile;
 
-    // 优先尝试 gzip 压缩版本（节省带宽，ESP8266 CPU 无需实时压缩）
-    if (LittleFS.exists(CONSOLE_PAGE_GZ))
+    if (NetworkManager::isAPMode())
     {
-        File f = LittleFS.open(CONSOLE_PAGE_GZ, "r");
-        if (f)
+        // AP 模式：提供配网页面，内置 SSID/密码表单和 WebSocket 连接
+        pageName = "offline.html (配网控制台)";
+        pageFile = AP_CONFIG_PAGE;
+    }
+    else
+    {
+        // STA 模式：提供完整推流控制台（视频文件选择、倍速、绿幕等）
+        // 优先使用 gzip 压缩版
+        if (LittleFS.exists(CONSOLE_PAGE_GZ))
         {
-            m_httpServer.streamFile(f, "text/html; charset=utf-8");
-            f.close();
-            return;
+            pageFile = CONSOLE_PAGE_GZ;
         }
+        else
+        {
+            pageFile = CONSOLE_PAGE;
+        }
+        pageName = "index.html (推流控制台)";
     }
 
-    // 回退：未压缩版本
-    if (LittleFS.exists(CONSOLE_PAGE))
+    Serial.printf("[WEB] 命中路由: %s → 直出 %s | 客户端: %s\n",
+                  m_httpServer.uri().c_str(), pageName,
+                  m_httpServer.client().remoteIP().toString().c_str());
+
+    if (LittleFS.exists(pageFile))
     {
-        File f = LittleFS.open(CONSOLE_PAGE, "r");
+        File f = LittleFS.open(pageFile, "r");
         if (f)
         {
             m_httpServer.streamFile(f, "text/html; charset=utf-8");
@@ -150,8 +167,8 @@ void WebServerManager::serveConsolePage()
     }
 
     // 最终兜底：文件不存在
-    Serial.println(F("[WEB] 控制台页面文件不存在! 请上传 index.html 或 index.html.gz 至 data/"));
-    m_httpServer.send(500, "text/plain", "Console page not found");
+    Serial.printf("[WEB] 页面文件 %s 不存在! 请上传至 data/\n", pageFile);
+    m_httpServer.send(500, "text/plain", "Page not found on ESP8266");
 }
 
 /* ========================================================================== */

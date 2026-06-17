@@ -28,8 +28,8 @@
   --success:       #00ffcc;
   --radius:        8px;
   --radius-sm:     4px;
-  --font-mono:     'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace;
-  --font-ui:       -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono:     ''SF Mono'',''Cascadia Code'',''JetBrains Mono'',''Consolas'',monospace;
+  --font-ui:       -apple-system,BlinkMacSystemFont,''Segoe UI'',''PingFang SC'',''Microsoft YaHei'',sans-serif;
 }
 
 /* ====================================================================== */
@@ -106,329 +106,247 @@ body{
 }
 
 /* ====================================================================== */
-/*  Connection Panel                                                       */
+/*  Status Badge — 连接状态 (精简版，只显示 ONLINE / OFFLINE)               */
 /* ====================================================================== */
-.conn-row{
-  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+.status-badge{
+  margin-left:auto;font-family:var(--font-mono);font-size:.58rem;
+  letter-spacing:2px;padding:3px 10px;border-radius:3px;
+  transition:all .3s;
 }
-.conn-input{
-  flex:1;min-width:140px;padding:9px 12px;
-  background:var(--bg-input);border:1px solid var(--border);
-  border-radius:var(--radius-sm);color:var(--text-primary);
-  font-family:var(--font-mono);font-size:.78rem;outline:none;
-  transition:border-color .25s;
-}
-.conn-input:focus{border-color:var(--accent);box-shadow:var(--accent-glow)}
-.conn-input::placeholder{color:var(--text-muted)}
-
-.btn{
-  padding:9px 18px;border:1px solid var(--accent);border-radius:var(--radius-sm);
-  background:transparent;color:var(--accent);
-  font-family:var(--font-ui);font-size:.72rem;font-weight:600;cursor:pointer;
-  letter-spacing:1.5px;text-transform:uppercase;
-  transition:all .25s;white-space:nowrap;
-}
-.btn:hover:not(:disabled){
-  background:var(--accent);color:var(--bg-base);
+.status-badge.off{color:var(--danger);border:1px solid var(--danger)}
+.status-badge.on{
+  color:var(--accent);border:1px solid var(--accent);
   box-shadow:var(--accent-glow);
 }
-.btn:active:not(:disabled){transform:scale(.96)}
-.btn:disabled{opacity:.25;cursor:not-allowed;border-color:var(--border);color:var(--text-muted)}
-.btn.danger{border-color:var(--danger);color:var(--danger)}
-.btn.danger:hover:not(:disabled){background:var(--danger);color:#fff;box-shadow:var(--danger-glow)}
-
-.status-badge{
-  font-family:var(--font-mono);font-size:.65rem;padding:4px 10px;border-radius:12px;
-  border:1px solid var(--border);color:var(--text-muted);white-space:nowrap;
-}
-.status-badge.on{border-color:var(--accent);color:var(--accent);box-shadow:0 0 8px rgba(0,255,204,.12)}
-.status-badge.off{border-color:var(--danger);color:var(--danger)}
-.status-badge.blocked{border-color:var(--danger);color:#fff;background:var(--danger);box-shadow:0 0 10px rgba(255,68,119,.35);animation:pulse-blocked 1.5s ease-in-out infinite}@keyframes pulse-blocked{0%,100%{opacity:1}50%{opacity:.6}}
-
-.ping{font-family:var(--font-mono);font-size:.6rem;color:var(--text-muted);margin-left:auto}
 
 /* ====================================================================== */
-/*  Video & Preview — 左右并排                                              */
+/*  Form Controls                                                          */
 /* ====================================================================== */
-.media-grid{
-  display:grid;grid-template-columns:1fr 128px;gap:12px;align-items:start;
-}
-@media(max-width:480px){.media-grid{grid-template-columns:1fr}}
-
-video{
-  width:100%;border-radius:var(--radius-sm);background:#000;
-  border:1px solid var(--border);display:block;outline:none;
-}
-video:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
-
-.preview-wrap{
-  display:flex;flex-direction:column;align-items:center;gap:6px;
-}
-.preview-wrap canvas{
-  border:1px solid var(--border);border-radius:var(--radius-sm);
-  image-rendering:pixelated;background:#000;
-  width:128px;height:64px;
-}
-.preview-label{
-  font-family:var(--font-mono);font-size:.55rem;color:var(--text-muted);
-  letter-spacing:1px;text-transform:uppercase;
+input,button,.file-label{
+  font-family:var(--font-ui);outline:none;
+  transition:border-color .25s,box-shadow .25s;
 }
 
-/* ====================================================================== */
-/*  File Row                                                               */
-/* ====================================================================== */
-.file-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
-input[type=file]{display:none}
-.btn-file{border-style:dashed}
+/* File Input */
+.file-input{display:none}
+.file-label{
+  display:inline-block;padding:9px 18px;
+  border:1px solid var(--accent);border-radius:var(--radius-sm);
+  background:transparent;color:var(--accent);
+  font-size:.68rem;cursor:pointer;letter-spacing:2px;
+  transition:all .25s;
+}
+.file-label:hover{background:var(--accent);color:var(--bg-base);box-shadow:var(--accent-glow)}
 .file-name{
-  font-family:var(--font-mono);font-size:.68rem;color:var(--text-muted);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;
+  font-family:var(--font-mono);font-size:.65rem;color:var(--text-muted);
+  margin-left:10px;
 }
 
-/* ====================================================================== */
-/*  Controls — 滑块 & 复选框                                                */
-/* ====================================================================== */
-.ctrl-grid{
-  display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;
-}
-@media(max-width:500px){.ctrl-grid{grid-template-columns:1fr}}
-
-.slider-group{display:flex;flex-direction:column;gap:4px}
-.slider-row{display:flex;justify-content:space-between;align-items:center}
+/* Sliders */
+.slider-group{margin:8px 0}
 .slider-label{
-  font-size:.68rem;color:var(--text-secondary);letter-spacing:.5px;
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:.6rem;color:var(--text-muted);margin-bottom:4px;letter-spacing:1px;
 }
-.slider-val{
-  font-family:var(--font-mono);font-size:.72rem;color:var(--accent);font-weight:600;
-  min-width:38px;text-align:right;
+.slider-val{font-family:var(--font-mono);color:var(--accent)}
+.slider{
+  width:100%;-webkit-appearance:none;appearance:none;
+  height:4px;background:var(--bg-surface);border-radius:2px;outline:none;
+}
+.slider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;
+  background:var(--accent);border-radius:50%;cursor:pointer;box-shadow:0 0 6px rgba(0,255,204,.3);
 }
 
-input[type=range]{
-  -webkit-appearance:none;appearance:none;width:100%;height:5px;
-  border-radius:3px;background:var(--border);outline:none;
-  transition:background .2s;
-}
-input[type=range]::-webkit-slider-thumb{
-  -webkit-appearance:none;appearance:none;
-  width:16px;height:16px;border-radius:50%;
-  background:var(--accent);border:2px solid var(--bg-card);
-  cursor:pointer;box-shadow:0 0 8px rgba(0,255,204,.3);
-  transition:box-shadow .2s;
-}
-input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 14px rgba(0,255,204,.5)}
-input[type=range]::-moz-range-thumb{
-  width:16px;height:16px;border-radius:50%;
-  background:var(--accent);border:2px solid var(--bg-card);
-  cursor:pointer;box-shadow:0 0 8px rgba(0,255,204,.3);
+/* Checkboxes */
+.checks{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0}
+.check-row{display:flex;align-items:center;gap:5px;font-size:.6rem;color:var(--text-muted);cursor:pointer}
+.check-row input[type=checkbox]{accent-color:var(--accent);cursor:pointer}
+
+/* ====================================================================== */
+/*  Canvas Preview                                                         */
+/* ====================================================================== */
+canvas{
+  display:block;image-rendering:pixelated;
+  width:512px;height:256px;margin:8px auto;
+  border:1px solid var(--border);border-radius:4px;
+  background:#000;
 }
 
 /* ====================================================================== */
-/*  Checkboxes                                                             */
+/*  Stream Buttons                                                         */
 /* ====================================================================== */
-.check-row{display:flex;gap:20px;flex-wrap:wrap;align-items:center}
-.check-item{display:flex;align-items:center;gap:7px;cursor:pointer}
-.check-item input[type=checkbox]{display:none}
-.check-box{
-  width:16px;height:16px;border:1px solid var(--border);border-radius:3px;
-  display:flex;align-items:center;justify-content:center;
-  transition:all .2s;flex-shrink:0;
+.btn{
+  padding:10px 20px;border:1px solid var(--accent);border-radius:var(--radius-sm);
+  background:transparent;color:var(--accent);
+  font-size:.68rem;cursor:pointer;letter-spacing:3px;
+  text-transform:uppercase;transition:all .3s;
 }
-.check-item input:checked + .check-box{
-  background:var(--accent);border-color:var(--accent);box-shadow:0 0 6px rgba(0,255,204,.3);
+.btn:hover{background:var(--accent);color:var(--bg-base);box-shadow:var(--accent-glow)}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.btn.danger:hover{background:var(--danger);color:var(--bg-base)}
+
+.btn-row{display:flex;gap:10px;align-items:center}
+.fps-display{
+  font-family:var(--font-mono);font-size:.58rem;color:var(--accent);
+  letter-spacing:2px;margin-left:auto;
 }
-.check-box::after{
-  content:'''';width:8px;height:8px;background:var(--bg-card);
-  clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%);
-  opacity:0;transition:opacity .15s;
-}
-.check-item input:checked + .check-box::after{opacity:1}
-.check-text{font-size:.7rem;color:var(--text-secondary);letter-spacing:.5px}
 
 /* ====================================================================== */
 /*  Footer                                                                 */
 /* ====================================================================== */
 .footer{
-  font-family:var(--font-mono);font-size:.6rem;color:var(--text-muted);
-  text-align:center;letter-spacing:2px;margin-top:auto;padding-top:24px;
+  text-align:center;font-size:.55rem;color:var(--text-muted);
+  margin-top:12px;letter-spacing:2px;
 }
-.footer .accent{color:var(--accent)}
-
-/* ====================================================================== */
-/*  Animations                                                             */
-/* ====================================================================== */
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-.pulse{animation:pulse 2s infinite}
-
-.btn.stream{border-color:#00cc66;color:#00cc66}
-.btn.stream:hover:not(:disabled){background:#00cc66;color:var(--bg-base);box-shadow:0 0 14px rgba(0,204,102,.3)}
-.status-badge.streaming{border-color:#00cc66;color:#00cc66;box-shadow:0 0 8px rgba(0,204,102,.12)}
-.fps-display{font-family:var(--font-mono);font-size:.65rem;color:var(--accent);background:var(--accent-dim);padding:3px 10px;border-radius:12px;letter-spacing:1px;visibility:hidden}
-.fps-display.show{visibility:visible}
-@keyframes neonPulse{0%,100%{box-shadow:0 0 4px var(--accent)}50%{box-shadow:0 0 16px var(--accent)}}
-.streaming-glow{animation:neonPulse 1.5s ease-in-out infinite}
+.hidden{display:none!important}
 </style>
 </head>
 <body>
 
-<!-- ====================================================================== -->
-<!--  Header                                                                 -->
-<!-- ====================================================================== -->
+<!-- ================================================================== -->
+<!--  Header                                                              -->
+<!-- ================================================================== -->
 <div class="header">
-  <div class="ascii">
-  &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9600;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600; &#9608;&#9600;&#9600;
-  &#9608;&#9600;&#9604; &#9608;&#9600;&#9604;   &#9608;  &#9608;&#9600;&#9604; &#9608;&#9600;&#9604; &#9608;&#9600;&#9600; &#9608;  &#9608;&#9600;&#9604;
-  &#9608;&#9600;&#9600; &#9608;&#9600;&#9600;   &#9608;  &#9608;&#9600;&#9600; &#9608;&#9600;  &#9608;&#9600;&#9600; &#9608;&#9600; &#9608;&#9600;&#9600;
-  
-    <button class="btn stream" id="btnStream" disabled>Start Stream</button>
-    <button class="btn danger" id="btnStopStream" disabled>Stop</button></div>
-  <h1>BitStream V2</h1>
-  <div class="ver">ESP8266 OLED Streaming Console</div>
+<div class="ascii">
+  ____  _ _   _       ____
+ |  _ \(_) |_| |_ ___/ ___| _ __ ___  __ _ _ __   ___
+ | | | | | __| __/ _ \___ \| ''__/ _ \/ _` | ''_ \ / _ \
+ | |_| | | |_| || (_) |__) | | |  __/ (_| | |_) | (_) |
+ |____/|_|\__|\__\___/____/|_|  \___|\__,_| .__/ \___/
+                                          |_|    V2.1
+</div>
+<h1>BitStream V2</h1>
+<div class="ver">ESP8266 SSD1306 OLED Streaming Console</div>
 </div>
 
-<!-- ====================================================================== -->
-<!--  Connection Card                                                        -->
-<!-- ====================================================================== -->
-<div class="card" id="connCard">
-  <div class="card-header">
-    <span class="dot off pulse" id="connDot"></span>
-    <span class="card-title">&#9654; Connection</span>
-    <span class="status-badge off" id="connBadge">OFFLINE</span>
-    <span class="ping" id="pingDisplay"></span>
-  </div>
-  <div class="conn-row">
-    <input type="text" class="conn-input" id="ipInput"
-           placeholder="192.168.x.x" autocomplete="off" spellcheck="false">
-    <button class="btn" id="btnConnect">Connect</button>
-    <button class="btn danger" id="btnDisconnect" disabled>Disconnect</button>
-  </div>
-</div>
-
-<!-- ====================================================================== -->
-<!--  Media Card — Video + OLED Preview                                      -->
-<!-- ====================================================================== -->
-<div class="card" id="mediaCard">
-  <div class="card-header">
-    <span class="dot" id="streamDot"></span>
-    <span class="card-title">&#9654; Stream</span>
-  
-    <span class="status-badge" id="streamBadge">IDLE</span>
-    <span class="fps-display" id="fpsDisplay">0 fps</span></div>
-  <div class="media-grid">
-    <div>
-      <video id="videoPlayer" controls playsinline></video>
-      <div class="file-row">
-        <button class="btn btn-file" id="btnSelectFile">Select File</button>
-        <span class="file-name" id="fileName">No file selected</span>
-      </div>
-      <input type="file" id="fileInput" accept="video/*">
-    </div>
-    <div class="preview-wrap">
-      <canvas id="previewCanvas" width="128" height="64"></canvas>
-      <span class="preview-label">OLED Preview</span>
-    </div>
-  </div>
-</div>
-
-<!-- ====================================================================== -->
-<!--  Control Card                                                           -->
-<!-- ====================================================================== -->
-<div class="card" id="ctrlCard">
+<!-- ================================================================== -->
+<!--  Card 1: Video Source                                                -->
+<!-- ================================================================== -->
+<div class="card">
   <div class="card-header">
     <span class="dot"></span>
-    <span class="card-title">&#9654; Controls</span>
+    <span class="card-title">Video Source</span>
+    <span class="status-badge on" id="connBadge" style="display:none">ONLINE</span>
+    <span class="status-badge off" id="connBadgeOff">CONNECTING...</span>
   </div>
-  <div class="ctrl-grid">
-    <div class="slider-group">
-      <div class="slider-row">
-        <span class="slider-label">Threshold</span>
-        <span class="slider-val" id="thresholdVal">128</span>
-      </div>
-      <input type="range" id="thresholdSlider" min="0" max="255" value="128" step="1">
-    </div>
-    <div class="slider-group">
-      <div class="slider-row">
-        <span class="slider-label">OLED Brightness</span>
-        <span class="slider-val" id="brightnessVal">255</span>
-      </div>
-      <input type="range" id="brightnessSlider" min="0" max="255" value="255" step="1">
-    </div>
-    <div class="slider-group">
-      <div class="slider-row">
-        <span class="slider-label">Speed</span>
-        <span class="slider-val" id="speedVal">1.0x</span>
-      </div>
-      <input type="range" id="speedSlider" min="0.5" max="2.0" value="1.0" step="0.1">
-    </div>
-  </div>
-  <div class="check-row" style="margin-top:14px">
-    <label class="check-item">
-      <input type="checkbox" id="checkGreenScreen">
-      <span class="check-box"></span>
-      <span class="check-text">Green Screen</span>
-    </label>
-    <label class="check-item">
-      <input type="checkbox" id="checkInvert">
-      <span class="check-box"></span>
-      <span class="check-text">Invert Colors</span>
-    </label>
+  <div>
+    <label class="file-label" for="fileInput">[ SELECT FILE ]</label>
+    <input type="file" id="fileInput" class="file-input" accept="video/*">
+    <span class="file-name" id="fileName">No file selected</span>
   </div>
 </div>
 
-<!-- ====================================================================== -->
-<!--  Footer                                                                 -->
-<!-- ====================================================================== -->
-<div class="footer">
-  <span class="accent">&#9608;</span> ESP8266 &middot; SSD1306 128&times;64 &middot; WebSocket &middot; I2C 800kHz <span class="accent">&#9608;</span>
+<!-- ================================================================== -->
+<!--  Card 2: Preview                                                     -->
+<!-- ================================================================== -->
+<div class="card">
+  <div class="card-header">
+    <span class="dot"></span>
+    <span class="card-title">Preview · 128×64</span>
+  </div>
+  <canvas id="previewCanvas" width="128" height="64"></canvas>
+  <canvas id="hiddenCanvas" width="128" height="64" class="hidden"></canvas>
 </div>
 
-<!-- ====================================================================== -->
-<!--  Hidden canvas for frame processing                                     -->
-<!-- ====================================================================== -->
-<canvas id="hiddenCanvas" width="128" height="64" style="display:none"></canvas>
+<!-- ================================================================== -->
+<!--  Card: Video Player — 原视频预览（可跳转、有声音）                    -->
+<!-- ================================================================== -->
+<div class="card" id="videoCard" style="display:none">
+  <div class="card-header">
+    <span class="dot"></span>
+    <span class="card-title">Video Player</span>
+  </div>
+  <video id="videoPlayer" controls playsinline webkit-playsinline style="width:100%;max-height:360px;border-radius:4px;background:#000" muted></video>
+</div>
 
-<!-- ====================================================================== -->
-<!--  JavaScript — ES6 Class Architecture                                    -->
-<!-- ====================================================================== -->
+<!-- ================================================================== -->
+<!--  Card 3: Controls                                                    -->
+<!-- ================================================================== -->
+<div class="card">
+  <div class="card-header">
+    <span class="dot"></span>
+    <span class="card-title">Controls</span>
+  </div>
+
+  <div class="slider-group">
+    <div class="slider-label"><span>Threshold</span><span class="slider-val" id="thresholdVal">128</span></div>
+    <input type="range" class="slider" id="thresholdSlider" min="0" max="255" value="128">
+  </div>
+
+  <div class="slider-group">
+    <div class="slider-label"><span>Brightness</span><span class="slider-val" id="brightnessVal">255</span></div>
+    <input type="range" class="slider" id="brightnessSlider" min="0" max="255" value="255">
+  </div>
+
+  <div class="slider-group">
+    <div class="slider-label"><span>Speed</span><span class="slider-val" id="speedVal">1.0x</span></div>
+    <input type="range" class="slider" id="speedSlider" min="0.5" max="2.0" value="1.0" step="0.1">
+  </div>
+
+  <div class="checks">
+    <label class="check-row"><input type="checkbox" id="checkGreenScreen"> Green Screen</label>
+    <label class="check-row"><input type="checkbox" id="checkInvert"> Invert</label>
+  </div>
+</div>
+
+<!-- ================================================================== -->
+<!--  Card 4: Streaming                                                   -->
+<!-- ================================================================== -->
+<div class="card">
+  <div class="card-header">
+    <span class="dot off" id="streamDot"></span>
+    <span class="card-title">Streaming</span>
+  </div>
+  <div class="btn-row">
+    <button class="btn" id="btnStream" disabled>[ START ]</button>
+    <button class="btn danger hidden" id="btnStopStream">[ STOP ]</button>
+    <span class="fps-display" id="fpsDisplay">0 fps</span>
+  </div>
+</div>
+
+<div class="footer">ESP8266 · SSD1306 128×64 · WebSocket</div>
+
+<!-- ================================================================== -->
+<!--  JavaScript — ES6 Class Architecture (V2.1)                         -->
+<!-- ================================================================== -->
 <script>
-/* ====================================================================== */
-/*  BitStreamApp — ES6 应用主类 + StreamEngine                             */
-/* ====================================================================== */
 class BitStreamApp {
   constructor() {
     /* ---- DOM ---- */
-    this.ipInput         = document.getElementById("ipInput");
-    this.btnConnect      = document.getElementById("btnConnect");
-    this.btnDisconnect   = document.getElementById("btnDisconnect");
-    this.connDot         = document.getElementById("connDot");
-    this.connBadge       = document.getElementById("connBadge");
-    this.pingDisplay     = document.getElementById("pingDisplay");
-    this.videoPlayer     = document.getElementById("videoPlayer");
-    this.btnSelectFile   = document.getElementById("btnSelectFile");
-    this.fileInput       = document.getElementById("fileInput");
-    this.fileName        = document.getElementById("fileName");
-    this.previewCanvas   = document.getElementById("previewCanvas");
-    this.previewCtx      = this.previewCanvas.getContext("2d",{willReadFrequently:true});
-    this.hiddenCanvas    = document.getElementById("hiddenCanvas");
-    this.hiddenCtx       = this.hiddenCanvas.getContext("2d",{willReadFrequently:true});
-    this.thresholdSlider = document.getElementById("thresholdSlider");
-    this.thresholdVal    = document.getElementById("thresholdVal");
-    this.brightnessSlider= document.getElementById("brightnessSlider");
-    this.brightnessVal   = document.getElementById("brightnessVal");
-    this.speedSlider     = document.getElementById("speedSlider");
-    this.speedVal        = document.getElementById("speedVal");
-    this.checkGreenScreen= document.getElementById("checkGreenScreen");
-    this.checkInvert     = document.getElementById("checkInvert");
-    this.btnStream       = document.getElementById("btnStream");
-    this.btnStopStream   = document.getElementById("btnStopStream");
-    this.streamBadge     = document.getElementById("streamBadge");
-    this.fpsDisplay      = document.getElementById("fpsDisplay");
-    this.streamDot       = document.getElementById("streamDot");
+    this.connBadgeOn    = document.getElementById("connBadge");
+    this.connBadgeOff   = document.getElementById("connBadgeOff");
+    this.videoPlayer    = document.getElementById("videoPlayer");
+    this.videoPlayer.setAttribute("playsinline","");
+    this.videoPlayer.setAttribute("webkit-playsinline","");
+    this.videoPlayer.muted = false;    // 允许声音输出
+    this.videoCard      = document.getElementById("videoCard");
+    this.fileInput      = document.getElementById("fileInput");
+    this.fileName       = document.getElementById("fileName");
+    this.previewCanvas  = document.getElementById("previewCanvas");
+    this.previewCtx     = this.previewCanvas.getContext("2d",{willReadFrequently:true});
+    this.hiddenCanvas   = document.getElementById("hiddenCanvas");
+    this.hiddenCtx      = this.hiddenCanvas.getContext("2d",{willReadFrequently:true});
+    this.thresholdSlider= document.getElementById("thresholdSlider");
+    this.thresholdVal   = document.getElementById("thresholdVal");
+    this.brightnessSlider=document.getElementById("brightnessSlider");
+    this.brightnessVal  = document.getElementById("brightnessVal");
+    this.speedSlider    = document.getElementById("speedSlider");
+    this.speedVal       = document.getElementById("speedVal");
+    this.checkGreenScreen=document.getElementById("checkGreenScreen");
+    this.checkInvert    = document.getElementById("checkInvert");
+    this.btnStream      = document.getElementById("btnStream");
+    this.btnStopStream  = document.getElementById("btnStopStream");
+    this.fpsDisplay     = document.getElementById("fpsDisplay");
+    this.streamDot      = document.getElementById("streamDot");
 
     /* ---- 网络状态 ---- */
     this.ws              = null;
-    this.currentVideoURL = null;
     this.connected       = false;
-    this.hasAlertedHTTPS = false;
+    this.wsUrl           = "ws://" + window.location.hostname + ":81";
+    this._reconnectTimer = null;
 
     /* ---- 控制参数 ---- */
     this.threshold       = 128;
@@ -437,9 +355,10 @@ class BitStreamApp {
     this.greenScreen     = false;
     this.invert          = false;
 
-    /* ================================================================ */
-    /*  StreamEngine state                                              */
-    /* ================================================================ */
+    /* ---- 倍速防抖 ---- */
+    this._speedChanging  = false;   // 用户正在拖动滑块，禁止 ratechange 反向覆盖
+
+    /* ---- 推流状态 ---- */
     this.streaming       = false;
     this.isEspReady      = true;
     this.ackTimeoutId    = null;
@@ -451,80 +370,78 @@ class BitStreamApp {
     this.fpsLastTime     = 0;
     this.rafId           = null;
 
-    console.log("[BitStreamApp] Constructor complete");
+    /* ---- 视频文件 ---- */
+    this.currentVideoURL = null;
+    this._loadingVideo   = false;
+
+    console.log("[App] Constructor | target: " + this.wsUrl);
   }
 
+  /* ================================================================ */
+  /*  INIT                                                             */
+  /* ================================================================ */
   init() {
-    console.log("[BitStreamApp] init()");
-    this.parseURLParams();
-    this.bindConnectionEvents();
     this.bindFileEvents();
-    this.bindStreamEvents();
     this.bindControlEvents();
-    this.updateConnectionUI();
+    this.bindStreamButtons();
+    this.bindVideoEvents();
     this.updateControlDisplay();
     this.updateStreamUI();
-    console.log("[BitStreamApp] Ready");
+
+    // 全自动连接
+    this.autoConnect();
+
+    console.log("[App] Ready | auto-connecting to " + this.wsUrl);
   }
 
-  parseURLParams() {
-    const p = new URLSearchParams(window.location.search);
-    const ip = p.get("ip");
-    if (ip) { this.ipInput.value = ip; console.log("[BitStreamApp] URL ip=" + ip); setTimeout(() => this.btnConnect.click(), 300); }
-  }
+  /* ================================================================ */
+  /*  AUTO CONNECT — 全自动后台连接                                    */
+  /* ================================================================ */
+  autoConnect() {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
 
-  bindConnectionEvents() {
-    this.btnConnect.addEventListener("click", () => {
-      const ip = this.ipInput.value.trim();
-      if (!ip) return;
-      console.log("[BitStreamApp] Connect: ws://" + ip + ":81");
-      this.connectWebSocket(ip);
-    });
-    this.btnDisconnect.addEventListener("click", () => this.disconnectWebSocket());
-    this.ipInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") this.btnConnect.click();
-    });
-  }
+    console.log("[App] Auto-connecting: " + this.wsUrl);
+    this.connBadgeOn.style.display = "none";
+    this.connBadgeOff.style.display = "inline-block";
+    this.connBadgeOff.textContent = "CONNECTING...";
 
-  connectWebSocket(ip) {
-    if (this.ws) this.disconnectWebSocket();
-    const url = "ws://" + ip + ":81";
-    try { this.ws = new WebSocket(url); }
+    try { this.ws = new WebSocket(this.wsUrl); }
     catch (err) {
-      console.error("[BitStreamApp] WS构造失败:", err.message || err);
-      if (window.location.protocol === "https:") {
-        if (!this.hasAlertedHTTPS) {
-          this.hasAlertedHTTPS = true;
-          const msg = "\u26a0\ufe0f \u6d4f\u89c8\u5668\u5b89\u5168\u62e6\u622a\uff01\n\nGitHub Pages (HTTPS) \u8bd5\u56fe\u8fde\u63a5\u5c40\u57df\u7f51\u5355\u7247\u673a (WS) \u88ab\u6d4f\u89c8\u5668\u963b\u6b62\u3002\n\n\u89e3\u51b3\u65b9\u6848\uff1a\n\u8bf7\u70b9\u51fb\u6d4f\u89c8\u5668\u5730\u5740\u680f\u5de6\u4fa7\u7684\u3010\u914d\u7f6e/\u9501\u56fe\u6807\u3011\uff0c\u8fdb\u5165\u3010\u7f51\u7ad9\u8bbe\u7f6e\u3011\uff0c\u5c06\u3010\u4e0d\u5b89\u5168\u5185\u5bb9 (Insecure content)\u3011\u8bbe\u4e3a\u3010\u5141\u8bb8\u3011\uff0c\u7136\u540e\u5237\u65b0\u7f51\u9875\u5373\u53ef\u79d2\u8fde\uff01";
-          alert(msg);
-        }
-        this.connBadge.classList.remove("on","off");
-        this.connBadge.classList.add("blocked");
-        this.connBadge.textContent = "BLOCKED \u67e5\u770b\u63d0\u793a";
-      }
+      console.error("[App] WS构造失败:", err.message);
+      this.scheduleReconnect();
       return;
     }
-      this.connected = true; this.updateConnectionUI();
-    };
-    this.ws.onclose = (ev) => {
-      console.log("[BitStreamApp] WS onclose | code=" + ev.code + " reason=" + ev.reason + " wasClean=" + ev.wasClean);
-      this.connected = false;
-      this.updateConnectionUI();
-    };
-    this.ws.onerror = (err) => {
-      console.error("[BitStreamApp] WS onerror | readyState=" + this.ws.readyState + " | protocol=" + window.location.protocol + " | url=" + url);
-      if (window.location.protocol === "https:") {
-        if (!this.hasAlertedHTTPS) {
-          this.hasAlertedHTTPS = true;
-          const msg = "\u26a0\ufe0f \u6d4f\u89c8\u5668\u5b89\u5168\u62e6\u622a\uff01\n\nGitHub Pages (HTTPS) \u8bd5\u56fe\u8fde\u63a5\u5c40\u57df\u7f51\u5355\u7247\u673a (WS) \u88ab\u6d4f\u89c8\u5668\u963b\u6b62\u3002\n\n\u89e3\u51b3\u65b9\u6848\uff1a\n\u8bf7\u70b9\u51fb\u6d4f\u89c8\u5668\u5730\u5740\u680f\u5de6\u4fa7\u7684\u3010\u914d\u7f6e/\u9501\u56fe\u6807\u3011\uff0c\u8fdb\u5165\u3010\u7f51\u7ad9\u8bbe\u7f6e\u3011\uff0c\u5c06\u3010\u4e0d\u5b89\u5168\u5185\u5bb9 (Insecure content)\u3011\u8bbe\u4e3a\u3010\u5141\u8bb8\u3011\uff0c\u7136\u540e\u5237\u65b0\u7f51\u9875\u5373\u53ef\u79d2\u8fde\uff01";
-          console.error(msg);
-          alert(msg);
-        }
-        this.connBadge.classList.remove("on","off");
-        this.connBadge.classList.add("blocked");
-        this.connBadge.textContent = "BLOCKED \u67e5\u770b\u63d0\u793a";
+
+    this.ws.binaryType = "arraybuffer";
+
+    this.ws.onopen = () => {
+      console.log("[App] WS connected!");
+      this.connected = true;
+      this.connBadgeOff.style.display = "none";
+      this.connBadgeOn.style.display = "inline-block";
+      this.connBadgeOn.textContent = "ONLINE";
+      // 连接后自动发送当前亮度
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send("BRIGHTNESS:" + this.hwBrightness);
       }
+      this.updateStreamUI();
     };
+
+    this.ws.onclose = (ev) => {
+      console.log("[App] WS closed | code=" + ev.code);
+      this.connected = false;
+      this.connBadgeOn.style.display = "none";
+      this.connBadgeOff.style.display = "inline-block";
+      this.connBadgeOff.textContent = "OFFLINE";
+      if (this.streaming) this.stopStream();
+      this.scheduleReconnect();
+      this.updateStreamUI();
+    };
+
+    this.ws.onerror = () => {
+      // onclose will follow, handle there
+    };
+
     this.ws.onmessage = (ev) => {
       if (typeof ev.data === "string" && ev.data === "ACK") {
         this.isEspReady = true;
@@ -533,83 +450,101 @@ class BitStreamApp {
     };
   }
 
-    // 死线诊断: 3秒后仍未连接 输出诊断信息
-    const wsRef = this.ws;
-    const wsUrl = url;
-    setTimeout(() => {
-      if (wsRef && wsRef.readyState !== WebSocket.OPEN && !this.connected) {
-        const states = ["CONNECTING","OPEN","CLOSING","CLOSED"];
-        console.warn("[BitStreamApp] 3s死线: readyState=" + wsRef.readyState + "(" + (states[wsRef.readyState]||"?") + ") | protocol=" + window.location.protocol + " | url=" + wsUrl);
-        if (window.location.protocol === "https:" && wsRef.readyState === WebSocket.CLOSED) {
-          console.warn("[BitStreamApp] HTTPS环境: ws:// 连接大概率被 Mixed Content 拦截");
-        }
-      }
+  /** 断线后 3 秒自动重连 */
+  scheduleReconnect() {
+    if (this._reconnectTimer) return;
+    console.log("[App] Will reconnect in 3s...");
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      if (!this.connected) this.autoConnect();
     }, 3000);
-  disconnectWebSocket() {
+  }
+
+  disconnect() {
     if (this.streaming) this.stopStream();
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this.ws) {
       this.ws.onopen = this.ws.onclose = this.ws.onerror = this.ws.onmessage = null;
-      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
-        this.ws.close(1000, "disconnect");
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close(1000, "user");
+      }
       this.ws = null;
     }
     this.connected = false;
-    this.updateConnectionUI();
+    this.connBadgeOn.style.display = "none";
+    this.connBadgeOff.style.display = "inline-block";
+    this.connBadgeOff.textContent = "DISCONNECTED";
+    this.updateStreamUI();
   }
 
-  updateConnectionUI() {
-    if (this.connected) {
-      this.connDot.classList.remove("off");
-      this.connBadge.classList.remove("off"); this.connBadge.classList.add("on");
-      this.connBadge.textContent = "ONLINE";
-      this.btnConnect.disabled = true; this.btnDisconnect.disabled = false;
-      this.ipInput.disabled = true;
-    } else {
-      this.connDot.classList.add("off");
-      this.connBadge.classList.remove("on"); this.connBadge.classList.add("off");
-      this.connBadge.textContent = "OFFLINE";
-      this.btnConnect.disabled = false; this.btnDisconnect.disabled = true;
-      this.ipInput.disabled = false;
-    }
-    this.updateStreamButtonState();
-  }
-
+  /* ================================================================ */
+  /*  FILE EVENTS                                                      */
+  /* ================================================================ */
   bindFileEvents() {
-    this.btnSelectFile.addEventListener("click", () => this.fileInput.click());
     this.fileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      this.cleanupVideoResources();
+      this.cleanupVideo();
       this.currentVideoURL = URL.createObjectURL(file);
       this.videoPlayer.src = this.currentVideoURL;
       this.fileName.textContent = file.name;
       this._loadingVideo = true;
       this.videoPlayer.load();
-      this.videoPlayer.addEventListener(
-"loadedmetadata"
-, () => {
+
+      // 视频元数据加载完成后刷新 UI（启用 START 按钮）
+      // 显示原视频播放器卡片
+      this.videoCard.style.display = "block";
+      this.videoPlayer.addEventListener("loadedmetadata", () => {
         this._loadingVideo = false;
         this.videoPlayer.playbackRate = this.speed;
-        console.log(
-"[BitStreamApp] 视频加载完成 → 恢复倍速 " + this.speed.toFixed(1) + "x"
-);
+        this.updateStreamUI();
+        console.log("[App] Video loaded: " + file.name + " → speed " + this.speed.toFixed(1) + "x");
       }, {once: true});
     });
-    this.videoPlayer.addEventListener("seeking", () => { console.log("[BitStreamApp] seeking"); this.seeking = true; });
+  }
+
+  /* ================================================================ */
+  /*  VIDEO EVENTS                                                     */
+  /* ================================================================ */
+  bindVideoEvents() {
+    // 防抖：seeking → 暂停帧发送
+    this.videoPlayer.addEventListener("seeking", () => {
+      this.seeking = true;
+    });
+
+    // 防抖：seeked → 恢复帧发送，重置 ACK 锁步
     this.videoPlayer.addEventListener("seeked", () => {
-      console.log("[BitStreamApp] seeked -> ct=" + this.videoPlayer.currentTime.toFixed(2));
       this.seeking = false;
       this.justSeeked = true;
       this.lastVideoTime = -1;
+      this.isEspReady = true;
+      if (this.ackTimeoutId) { clearTimeout(this.ackTimeoutId); this.ackTimeoutId = null; }
+      // 锁定倍速
+      if (!this._speedChanging) this.videoPlayer.playbackRate = this.speed;
     });
-      this.videoPlayer.addEventListener("play", () => { console.log("[BitStreamApp] play \u2192 \u9501\u5b9a\u500d\u901f " + this.speed.toFixed(1) + "x"); this.videoPlayer.playbackRate = this.speed; });
-      this.videoPlayer.addEventListener("ratechange", () => { if (this._loadingVideo) return; const rate = this.videoPlayer.playbackRate; if (rate !== this.speed) { console.log("[BitStreamApp] ratechange: " + this.speed.toFixed(1) + "x \u2192 " + rate.toFixed(1) + "x (\u539f\u751f\u63a7\u4ef6)"); this.speed = rate; this.speedSlider.value = rate; this.speedVal.textContent = rate.toFixed(1) + "x"; } });
+
+    // 倍速锁定：play 事件
+    this.videoPlayer.addEventListener("play", () => {
+      if (!this._speedChanging) this.videoPlayer.playbackRate = this.speed;
+    });
+
+    // 倍速同步：ratechange（仅在非用户操作时同步）
+    this.videoPlayer.addEventListener("ratechange", () => {
+      if (this._loadingVideo || this._speedChanging) return;
+      const rate = this.videoPlayer.playbackRate;
+      if (Math.abs(rate - this.speed) > 0.01) {
+        // 浏览器内部改变（如 seek 后重置）→ 强制拉回用户设定值
+        console.log("[App] ratechange auto-correct: " + rate.toFixed(1) + "x → " + this.speed.toFixed(1) + "x");
+        this.videoPlayer.playbackRate = this.speed;
+      }
+    });
+
     this.videoPlayer.addEventListener("ended", () => {
       if (this.streaming) this.stopStream();
     });
   }
 
-  cleanupVideoResources() {
+  cleanupVideo() {
     if (this.streaming) this.stopStream();
     if (this.videoPlayer && !this.videoPlayer.paused) this.videoPlayer.pause();
     if (this.videoPlayer) { this.videoPlayer.removeAttribute("src"); this.videoPlayer.load(); }
@@ -621,14 +556,13 @@ class BitStreamApp {
     this.lastVideoTime = -1;
     this.seeking = false;
     this.justSeeked = false;
+    if (this.videoCard) this.videoCard.style.display = "none";
     this.updateStreamUI();
   }
 
-  bindStreamEvents() {
-    this.btnStream.addEventListener("click", () => this.startStream());
-    this.btnStopStream.addEventListener("click", () => this.stopStream());
-  }
-
+  /* ================================================================ */
+  /*  CONTROL EVENTS                                                   */
+  /* ================================================================ */
   bindControlEvents() {
     this.thresholdSlider.addEventListener("input", () => {
       this.threshold = parseInt(this.thresholdSlider.value);
@@ -640,11 +574,19 @@ class BitStreamApp {
       if (this.ws && this.ws.readyState === WebSocket.OPEN)
         this.ws.send("BRIGHTNESS:" + this.hwBrightness);
     });
+
+    // 倍速：记录用户操作，防止 ratechange 反向覆盖
     this.speedSlider.addEventListener("input", () => {
+      this._speedChanging = true;
       this.speed = parseFloat(this.speedSlider.value);
       this.speedVal.textContent = this.speed.toFixed(1) + "x";
       this.videoPlayer.playbackRate = this.speed;
     });
+    this.speedSlider.addEventListener("change", () => {
+      // 用户松手后解除锁定
+      this._speedChanging = false;
+    });
+
     this.checkGreenScreen.addEventListener("change", () => {
       this.greenScreen = this.checkGreenScreen.checked;
     });
@@ -659,42 +601,44 @@ class BitStreamApp {
     this.speedVal.textContent = this.speed.toFixed(1) + "x";
   }
 
-  updateStreamButtonState() {
-    const hasVid = !!this.videoPlayer.src && this.videoPlayer.src !== window.location.href;
-    this.btnStream.disabled = !this.connected || !hasVid || this.streaming;
-    this.btnStopStream.disabled = !this.streaming;
+  /* ================================================================ */
+  /*  STREAM BUTTONS                                                   */
+  /* ================================================================ */
+  bindStreamButtons() {
+    this.btnStream.addEventListener("click", () => this.startStream());
+    this.btnStopStream.addEventListener("click", () => this.stopStream());
   }
 
   updateStreamUI() {
     if (this.streaming) {
-      this.streamBadge.textContent = "STREAMING";
-      this.streamBadge.className = "status-badge streaming streaming-glow";
+      this.btnStream.classList.add("hidden");
+      this.btnStopStream.classList.remove("hidden");
       this.streamDot.classList.remove("off");
-      this.fpsDisplay.classList.add("show");
     } else {
-      this.streamBadge.textContent = "IDLE";
-      this.streamBadge.className = "status-badge";
+      this.btnStream.classList.remove("hidden");
+      this.btnStopStream.classList.add("hidden");
       this.streamDot.classList.add("off");
-      this.fpsDisplay.classList.remove("show");
       this.fpsDisplay.textContent = "0 fps";
     }
-    this.updateStreamButtonState();
+    // 按钮可用条件：已连接 + 已选文件
+    const canStream = this.connected && this.videoPlayer.src && this.videoPlayer.src !== window.location.href;
+    this.btnStream.disabled = !canStream;
   }
 
   /* ================================================================ */
-  /*  STREAM ENGINE CORE                                              */
+  /*  STREAM ENGINE CORE                                               */
   /* ================================================================ */
-
   startStream() {
     if (this.streaming) return;
     if (!this.connected || !this.videoPlayer.src || this.videoPlayer.src === window.location.href) return;
-    console.log("[Stream] ENGINE START");
+    console.log("[Stream] START");
 
     this.streaming = true;
     this.isEspReady = true;
     this.lastVideoTime = -1;
+    this.justSeeked = true;      // 跳过首帧重复检测
+    this._initBurst = 5;         // 初始爆发：前 5 帧不检查重复，快速填充管线
     this.seeking = false;
-    this.justSeeked = false;
     this.frameSentCount = 0;
     this.fpsAccum = 0;
     this.fpsLastTime = 0;
@@ -711,7 +655,7 @@ class BitStreamApp {
 
   stopStream() {
     if (!this.streaming) return;
-    console.log("[Stream] ENGINE STOP (frames: " + this.frameSentCount + ")");
+    console.log("[Stream] STOP | frames: " + this.frameSentCount);
     this.streaming = false;
     this.isEspReady = true;
     if (this.ackTimeoutId) { clearTimeout(this.ackTimeoutId); this.ackTimeoutId = null; }
@@ -726,11 +670,9 @@ class BitStreamApp {
     if (!this.isEspReady) return;
 
     const ct = this.videoPlayer.currentTime;
-    if (ct === this.lastVideoTime && !this.justSeeked) return;
-
-    // 每60帧输出诊断
-    if (this.frameSentCount % 60 === 0) {
-      console.log("[Tick] frame#" + this.frameSentCount + " ct=" + ct.toFixed(2) + " speed=" + this.speed.toFixed(1) + " paused=" + this.videoPlayer.paused);
+    // 初始爆发模式：前 N 帧不检查重复（burst 在 frame 实际发送后才递减）
+    if (this._initBurst <= 0 && ct === this.lastVideoTime && !this.justSeeked) {
+      return;
     }
 
     this.fpsAccum++;
@@ -747,6 +689,8 @@ class BitStreamApp {
   processAndSendFrame() {
     const video = this.videoPlayer;
     if (!video || video.readyState < 2) return;
+    // 仅在 frame 实际处理后才递减 burst 计数
+    if (this._initBurst > 0) this._initBurst--;
 
     /* Step 1: Draw to hidden canvas */
     this.hiddenCtx.drawImage(video, 0, 0, 128, 64);
@@ -771,7 +715,6 @@ class BitStreamApp {
           if (gsFlag && g > r * 1.3 && g > b * 1.3) {
             bright = 0;
           } else {
-            /* Integer: (R*299 + G*587 + B*114) / 1000 */
             bright = ((r * 299 + g * 587 + b * 114) / 1000) > th ? 1 : 0;
           }
           if (inv) bright ^= 1;
@@ -814,21 +757,23 @@ class BitStreamApp {
     this.ackTimeoutId = setTimeout(function() {
       if (!self.isEspReady) {
         self.isEspReady = true;
-        console.warn("[Stream] ACK timeout 200ms - auto unlock");
+        console.warn("[Stream] ACK timeout 200ms");
       }
       self.ackTimeoutId = null;
     }, 200);
   }
 }
 
+/* ================================================================ */
+/*  BOOT                                                              */
+/* ================================================================ */
 const app = new BitStreamApp();
 app.init();
+
 window.addEventListener("beforeunload", () => {
   if (app.streaming) app.stopStream();
-  app.disconnectWebSocket();
-  app.cleanupVideoResources();
+  app.disconnect();
 });
-
-
+</script>
 </body>
 </html>

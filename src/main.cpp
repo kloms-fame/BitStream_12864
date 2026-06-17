@@ -124,7 +124,7 @@ void loop()
     const uint32_t now = millis();
     if (now - s_lastBeat >= 30000) {
         s_lastBeat = now;
-        Serial.printf("[MAIN] 心跳 | 运行: %lu s | 堆: %u B | 模式: %s | WS客户端: %u\n",
+        Serial.printf("[MAIN] 心跳 | 运行: %u s | 堆: %u B | 模式: %s | WS客户端: %u\n",
                       now / 1000, ESP.getFreeHeap(),
                       NetworkManager::isAPMode() ? "AP" : "STA",
                       network.getClientCount());

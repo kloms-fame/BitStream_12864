@@ -171,6 +171,12 @@ canvas{
 </div>
 <input type="range" class="slider" id="brightness" min="0" max="255" value="255" oninput="onBrightness(this.value)">
 
+
+<div class="row" style="margin-top:8px">
+  <label style="color:var(--accent)">倍速</label>
+  <span style="font-size:.5rem;color:var(--muted);min-width:28px;text-align:right" id="speedVal">1.0x</span>
+</div>
+<input type="range" class="slider" id="speedSlider" min="0.5" max="2.0" value="1.0" step="0.1" oninput="onSpeed(this.value)">
 <div class="row" style="margin-top:6px">
   <label><input type="checkbox" id="chkGreen" onchange="onFlags()"> 过滤绿幕</label>
   <label><input type="checkbox" id="chkInvert" onchange="onFlags()"> 反转颜色</label>
@@ -228,6 +234,9 @@ let frameSentCount= 0;
 let fpsAccum   = 0;
 let fpsLastTime= 0;
 let rafId      = null;
+let speed      = 1.0;
+let initBurst  = 0;
+let speedChanging = false;
 let ackTimeoutId = null;
 
 /* ============================== WIFI CONFIG ========================= */
@@ -303,6 +312,15 @@ function sendBrightness(val) {
   }
 }
 
+/* ============================== SPEED =============================== */
+function onSpeed(val) {
+  speedChanging = true;
+  speed = parseFloat(val);
+  document.getElementById("speedVal").textContent = speed.toFixed(1) + "x";
+  video.playbackRate = speed;
+}
+document.getElementById("speedSlider").addEventListener("change", function() { speedChanging = false; });
+
 /* ============================== FLAGS =============================== */
 function onFlags() {
   greenScreen = chkGreen.checked;
@@ -315,7 +333,7 @@ fileInput.addEventListener('change', function() {
   if (!f) return;
   const url = URL.createObjectURL(f);
   video.src = url;
-  video.style.display = "block"; video.load(); updateStreamButton();
+  video.style.display = "block"; video.muted = false; video.load(); updateStreamButton();
 });
 
 /* ============================== STREAM CONTROL ====================== */
@@ -343,6 +361,8 @@ function startStream() {
   streaming    = true;
   isEspReady   = true;
   lastVideoTime= -1;
+  justSeeked   = true;
+  initBurst    = 5;
   frameSentCount=0;
   fpsAccum     = 0;
   fpsLastTime  = 0;
@@ -375,7 +395,7 @@ function tick(timestamp) { if (seeking) return; if (!streaming || !isEspReady) r
 
   // 跳过重复帧（播放器未推进）
   const ct = video.currentTime;
-  if (ct === lastVideoTime && !justSeeked) return;
+  if (initBurst <= 0 && ct === lastVideoTime && !justSeeked) return;
 
   fpsAccum++;
   if (!fpsLastTime) fpsLastTime = timestamp;
@@ -391,6 +411,7 @@ function tick(timestamp) { if (seeking) return; if (!streaming || !isEspReady) r
 /* ============================== FRAME PROCESSOR ===================== */
 function processAndSend() {
   if (video.readyState < 2) return;
+  if (initBurst > 0) initBurst--;
 
   /* Step 1: Draw video → hidden canvas */
   hiddenCtx.drawImage(video, 0, 0, W, H);
@@ -463,8 +484,29 @@ function processAndSend() {
   }, 200);
 }
 
+// 【防抖】seeking: 暂停帧发送，防止拖拽进度条时 WebSocket 缓冲区溢出
 video.addEventListener('seeking', () => { seeking = true; });
-video.addEventListener('seeked', () => { seeking = false; justSeeked = true; lastVideoTime = -1; });
+// 【防抖】seeked: 恢复帧发送，重置 ACK 锁步状态
+
+// 【倍速锁定】play 事件：确保视频以用户设定的倍速播放
+// 【倍速锁定】play 事件
+video.addEventListener("play", function() { if (!speedChanging) video.playbackRate = speed; });
+// 【倍速同步】ratechange：浏览器内部改变倍速时强制拉回
+video.addEventListener("ratechange", function() {
+  if (speedChanging) return;
+  if (Math.abs(video.playbackRate - speed) > 0.01) {
+    video.playbackRate = speed;
+  }
+});
+// 【防抖】seeked：恢复帧发送 + 重置锁步
+video.addEventListener("seeked", function() {
+  seeking = false;
+  justSeeked = true;
+  lastVideoTime = -1;
+  isEspReady = true;               // 重置锁步，立即恢复帧发送
+  if (ackTimeoutId) { clearTimeout(ackTimeoutId); ackTimeoutId = null; }
+  video.playbackRate = speed; // 锁定倍速，防止浏览器 seek 后重置
+});
 
 /* ============================== INIT ================================ */
 connectWS();
