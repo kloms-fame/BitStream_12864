@@ -157,12 +157,12 @@ void loop()
     }
 
 
-    /* ── [P3-2] 看门狗：超过 10 秒无帧 → 软复位 ──────────────
+    /* ── [P3-2] 看门狗：超过 60 秒无帧 → 软复位 ──────────────
      *  仅在推流活跃时（hasNewFrame 曾被设置过）启用，
      *  避免刚启动时误触发。
      */
-    if (s_lastFrameTime > 0 && (millis() - s_lastFrameTime > 10000)) {
-        EVENT_LOG("[MAIN] 看门狗：10 秒无帧，软复位...\n");
+    if (s_lastFrameTime > 0 && (millis() - s_lastFrameTime > 60000)) {
+        EVENT_LOG("[MAIN] 看门狗：60 秒无帧，软复位...\n");
         delay(100);
         ESP.restart();
     }

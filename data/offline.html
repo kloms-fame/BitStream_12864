@@ -385,7 +385,7 @@ function startStream() {
   lastSendTime = 0;
 
   video.play();
-  document.getElementById("metricsCard").style.display = "";
+  (document.getElementById("metricsCard")||{style:{}}).style.display = "";
   updateStreamButton();
   streamStatus.textContent = '推流中...';
   streamStatus.className = 'status on';
@@ -404,7 +404,7 @@ function stopStream() {
   streamStatus.className = 'status off';
   streamDot.classList.add('off');
   fpsDisplay.textContent = '0 fps';
-  document.getElementById("metricsCard").style.display = "none";
+  (document.getElementById("metricsCard")||{style:{}}).style.display = "none";
 }
 
 /* ============================== TICK ================================ */
@@ -425,13 +425,13 @@ function tick(timestamp) { if (seeking) return; if (!streaming || !isEspReady) r
     fpsDisplay.textContent = fpsAccum + " fps";
 
   // [P1-2] 更新实时指标
-  if (document.getElementById("metricsCard").style.display !== "none") {
-    document.getElementById("mWindow").textContent = inflight + "/3";
-    document.getElementById("mSent").textContent = frameSentCount;
-    document.getElementById("mDropped").textContent = droppedFrames;
-    document.getElementById("mThrottled").textContent = throttledFrames;
-    document.getElementById("mAcked").textContent = lastAcked;
-    document.getElementById("mRtt").textContent = "--";
+  if ((document.getElementById("metricsCard")||{style:{}}).style.display !== "none") {
+    (document.getElementById("mWindow")||{}).textContent = inflight + "/3";
+    (document.getElementById("mSent")||{}).textContent = frameSentCount;
+    (document.getElementById("mDropped")||{}).textContent = droppedFrames;
+    (document.getElementById("mThrottled")||{}).textContent = throttledFrames;
+    (document.getElementById("mAcked")||{}).textContent = lastAcked;
+    (document.getElementById("mRtt")||{}).textContent = "--";
   }
     fpsAccum = 0;
     fpsLastTime = timestamp;
