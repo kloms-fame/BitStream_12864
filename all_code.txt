@@ -1,0 +1,1400 @@
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\AGENTS.md =====
+
+# Repository Guidelines
+
+## 项目结构与模块组织
+
+```
+BitStream_12864/
+├── src/          # 主程序源码 (main.cpp)
+├── include/      # 公共头文件 (.h)
+├── lib/          # 项目私有库
+├── test/         # PlatformIO 单元测试
+├── platformio.ini # 项目配置与依赖
+└── 参考项目/      # 参考实现项目
+```
+
+- `src/main.cpp` — 程序入口（`setup()` / `loop()`）
+- `include/` — 跨源文件共享的声明与宏定义
+- `lib/` — 放置项目专属的 Arduino/PlatformIO 库
+- `test/` — 使用 PlatformIO Unit Testing 框架编写的测试用例
+
+## 构建、测试与开发命令
+
+| 命令 | 说明 |
+|---|---|
+| `pio run` | 编译项目（环境：`nodemcuv2`） |
+| `pio run -t upload` | 编译并上传至 ESP8266 开发板 |
+| `pio test` | 运行 `test/` 中的单元测试 |
+| `pio device monitor` | 打开串口监视器（波特率默认 115200） |
+
+以上命令需在 `BitStream_12864/` 目录下执行，并确保已安装 [PlatformIO Core](https://platformio.org/install/cli)。
+
+## 编码风格与命名规范
+
+- **语言标准**：C++（Arduino 框架），使用 `#include <Arduino.h>`
+- **缩进**：建议使用 2 空格缩进，与 PlatformIO 默认模板保持一致
+- **函数命名**：驼峰式（camelCase），如 `myFunction()`
+- **文件命名**：源文件 `.cpp`，头文件 `.h`
+- 公共声明放在 `include/` 目录下对应的头文件中，通过 `#include "header.h"` 引用
+- 使用 VSCode + PlatformIO 插件可获得 IntelliSense 与一键构建体验
+
+## 测试指南
+
+- 测试框架：**PlatformIO Unit Testing**
+- 测试目录：`test/`，测试文件以 `test_` 前缀命名（如 `test_display.cpp`）
+- 运行 `pio test` 即可在目标硬件或本地执行所有测试
+- 若需特定环境执行，添加 `-e nodemcuv2` 参数
+
+## 提交与 Pull Request 指南
+
+- 提交前确保 `pio run` 编译通过
+- 遵循常规提交格式：`类型: 简要描述`（如 `feat: 添加 WiFi 流传输模块`）
+- `.pio/` 目录已被 `.gitignore` 排除，无需手动清理
+- 参考项目（`参考项目/`）中保留的原始 README 与代码可作为设计参考，请勿直接提交参考项目中的代码
+
+## 硬件与依赖
+
+- **目标平台**：ESP8266 (NodeMCU v2)，SSD1306 128×64 OLED
+- **框架**：Arduino，依赖库通过 PlatformIO Library Manager 管理
+- 在 `platformio.ini` 的 `lib_deps` 中声明外部库依赖
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\platformio.ini =====
+
+; ============================================================================
+; BitStream V2 — PlatformIO 项目配置
+; 开发板: NodeMCU v2 (ESP8266) | 文件系统: LittleFS | 框架: Arduino
+; ============================================================================
+
+[env:nodemcuv2]
+platform = espressif8266
+board = nodemcuv2
+framework = arduino
+
+monitor_speed = 115200
+
+; --- 文件系统 ---
+board_build.filesystem = littlefs
+
+; --- 编译优化 ---
+build_flags =
+    -Os                          ; 体积优化（ESP8266 Flash 有限）
+    -std=c++17                   ; 现代 C++（支持 if constexpr / string_view 等）
+    -Wno-unused-variable         ; 抑制未使用变量警告（Arduino 框架常见）
+
+; --- 库依赖 ---
+lib_deps =
+    olikraus/U8g2               ; OLED 图形库（SSD1306 128×64）
+    links2004/WebSockets        ; WebSocket 服务端（81 端口推流）
+    bblanchon/ArduinoJson       ; JSON 解析（凭据持久化 / 运行参数配置）
+
+; --- 库私有路径 ---
+lib_extra_dirs =
+    ${PROJECT_DIR}/lib
+
+; --- 测试环境 ---
+test_build_src = yes    ; 单元测试编译整个项目源
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\docs\superpowers\specs\2026-06-16-web-stream-console-design.md =====
+
+# Web 推流控制台 — 设计文档
+
+**日期:** 2026-06-16  
+**状态:** 已确认
+
+## 概述
+
+单文件纯前端 HTML 页面，通过浏览器直连 ESP8266 WebSocket（81 端口），将本地视频实时二值化为 128×64 XBM 二进制帧并推流。
+
+## 架构
+
+\\\
+[本地视频文件] → [<video> 静音播放]
+                        ↓ 每 50ms
+              [隐藏 Canvas 128×64]
+                        ↓ ImageData RGBA
+              [灰度二值化 阈值128]
+                        ↓
+              [XBM 打包 1024字节]
+                    ↙           ↘
+         [预览Canvas 128×64]   [WebSocket → ESP8266 OLED]
+\\\
+
+## 组件
+
+### 1. 连接面板
+- IP 地址输入框（ws://IP:81 格式提示）
+- 连接/断开按钮
+- WebSocket 状态指示灯（绿=已连接，红=已断开）
+
+### 2. 控制面板
+- 视频文件选取（<input type="file" accept="video/*">）
+- <video> 标签（muted, loop, 隐藏样式）
+- "开始推流" / "停止推流" 按钮
+
+### 3. 预览面板
+- 可见 <canvas> 128×64 画布
+- CSS 放大至 512×256 便于肉眼观察
+- 实时渲染二值化后的黑白像素
+
+## 数据协议
+
+- **WebSocket binaryType:** "arraybuffer"
+- **帧格式:** 1024 字节 Uint8Array，XBM 格式
+- **像素序:** 横向 LSB 优先（字节 bit 0 = 最左像素）
+- **帧率:** 20fps（setInterval 50ms）
+
+## 二值化算法
+
+1. 获取 ImageData RGBA
+2. 灰度 = 0.299×R + 0.587×G + 0.114×B
+3. 灰度 > 128 → 亮像素（bit = 1）
+4. 按 XBM LSB-first 打包为 1024 字节
+
+## 视觉风格
+
+- 背景: #121212
+- 强调色: #00ffcc
+- 次要背景: #1e1e1e
+- 字体: 等宽 'Courier New', monospace
+- 区块: 圆角卡片式，极简边框
+
+## 边界处理
+
+- 视频未加载时禁用推流按钮
+- WebSocket 断开时自动停止推流
+- 视频 loop 属性避免播放中断
+- 页面卸载时自动关闭 WebSocket
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\docs\superpowers\specs\2026-06-16-webserver-redirect-refactor-design.md =====
+
+# WebServerManager 重定向路由器重构
+
+**日期：** 2026-06-16
+**状态：** 已批准
+
+## 背景
+
+当前 WebServerManager 从 LittleFS 读取 `index.html` 并通过 HTTP 80 端口托管前端控制台页面。前端页面将迁移至 GitHub Pages（`kloms-fame.github.io/BitStream_12864/`），ESP8266 仅作为重定向路由器。
+
+## 设计
+
+### 行为变更
+
+- **之前：** `GET /` → 从 LittleFS 读取 `index.html`，流式返回 HTML
+- **之后：** `GET /` → 构造 `https://kloms-fame.github.io/BitStream_12864/?ip=<局域网IP>`，返回 HTTP 302 重定向
+
+### 影响范围
+
+| 文件 | 变更 |
+|---|---|
+| `include/WebServerManager.h` | 移除 `#include <LittleFS.h>`，更新类/方法文档注释 |
+| `src/WebServerManager.cpp` | 移除 LittleFS 初始化与文件读取，替换为 URL 构造 + 302 重定向 |
+| `src/main.cpp` | 无需修改 |
+
+### 核心逻辑
+
+```cpp
+void WebServerManager::begin()
+{
+    server.on("/", HTTP_GET, [this]()
+    {
+        String url = "https://kloms-fame.github.io/BitStream_12864/?ip="
+                   + WiFi.localIP().toString();
+        server.sendHeader("Location", url, true);
+        server.send(302, "text/plain", "");
+    });
+
+    server.begin();
+    Serial.println("HTTP redirect server started on port 80");
+}
+```
+
+### 不变项
+
+- 端口：80
+- 类接口：`begin()` / `loop()` 签名不变
+- `loop()` 实现不变（`server.handleClient()`）
+- `main.cpp` 调用方式不变
+
+## 优势
+
+- **Flash 节省：** 不再需要 LittleFS 分区存储 HTML 文件
+- **维护性：** 前端更新只需推送 GitHub Pages，无需重新烧录固件
+- **简洁性：** WebServerManager 从 ~60 行缩减至 ~30 行
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\include\DisplayManager.h =====
+
+/**
+ * @file    DisplayManager.h
+ * @brief   V2 显示内核 — SSD1306 OLED 超频渲染与亮度控制
+ *
+ * @details 本模块是 V2 架构的"显示层"，严格遵循高内聚低耦合原则：
+ *          - 零网络依赖：不包含任何 WiFi/WebSocket/HTTP 代码
+ *          - 零业务逻辑：仅提供像素级渲染原语
+ *          - I2C 800kHz 超频：将 1024 字节帧传输时间从 ~90ms 压缩至 ~15ms
+ *          - 亮度控制：通过 SSD1306 对比度寄存器 (0x81) 实现 256 级软件调光
+ *
+ *          外部使用者仅通过以下 4 个公有接口即可完成全部显示任务：
+ *          begin() → showStatus() → renderFrame() → setBrightness()
+ */
+
+#ifndef DISPLAY_MANAGER_H
+#define DISPLAY_MANAGER_H
+
+#include <Arduino.h>
+#include <U8g2lib.h>
+
+/**
+ * @class DisplayManager
+ * @brief 统一管理 SSD1306 128×64 OLED 的硬件初始化、像素渲染与亮度控制
+ *
+ *        硬件规格：
+ *        - 控制器：SSD1306
+ *        - 分辨率：128×64 像素
+ *        - 接口：硬件 I2C（GPIO4=SDA, GPIO5=SCL）
+ *        - 帧格式：XBM 位图，1024 字节 (128×64÷8)
+ *        - I2C 速率：800kHz（默认 100kHz，8 倍超频）
+ */
+class DisplayManager
+{
+public:
+    /** @brief 亮度范围常量 */
+    static constexpr uint8_t BRIGHTNESS_MIN  = 0;    ///< 最低亮度（几乎不可见）
+    static constexpr uint8_t BRIGHTNESS_MAX  = 255;  ///< 最高亮度（默认值）
+    static constexpr uint8_t BRIGHTNESS_DEFAULT = 255;
+    static constexpr uint8_t FRAME_WIDTH     = 128;
+    static constexpr uint8_t FRAME_HEIGHT    = 64;
+    static constexpr uint16_t FRAME_BYTES    = 1024; ///< 128×64÷8
+
+    /**
+     * @brief 构造 DisplayManager 实例
+     *
+     * @details 在初始化列表中创建 SSD1306 硬件 I2C 的 U8g2 对象。
+     *          参数含义：
+     *          - U8G2_R0：屏幕不旋转
+     *          - U8X8_PIN_NONE：使用 ESP8266 默认 I2C 引脚 (SDA=GPIO4, SCL=GPIO5)
+     */
+    DisplayManager();
+
+    /**
+     * @brief 初始化 OLED 硬件并超频 I2C 总线至 800kHz
+     *
+     * @details 执行顺序：
+     *          1. 将 I2C 时钟从默认 100kHz 提升至 800kHz
+     *          2. 调用 U8g2 硬件初始化
+     *          3. 清空帧缓冲区
+     *          4. 推送空白帧至屏幕（消除上电残留噪点）
+     *
+     * @note 若 800kHz 在长排线场景下不稳定，可降级为 400000UL
+     */
+    void begin();
+
+    /**
+     * @brief 渲染一帧二进制位图（零延时，极速绘制）
+     *
+     * @param payload 指向 1024 字节 XBM 位图数组的指针
+     *
+     * @details 将 128×64 单色位图数据通过 drawXBM() 写入 U8g2 缓冲区，
+     *          随即通过 800kHz I2C 调用 sendBuffer() 一次性刷新整个屏幕。
+     *          本方法是推流管线中的核心渲染出口。
+     *
+     * @warning 调用者需确保 payload 指向合法且完整的 1024 字节内存。
+     *          本方法不做长度校验以保持零开销 —— 这是性能关键路径。
+     */
+    void renderFrame(uint8_t *payload);
+
+    /**
+     * @brief 动态调节 OLED 亮度（通过 SSD1306 对比度寄存器）
+     *
+     * @param contrast 亮度值，范围 [BRIGHTNESS_MIN, BRIGHTNESS_MAX]
+     *
+     * @details 向 SSD1306 发送对比度设置命令 (0x81)，
+     *          值越大显示越亮。0 为几乎不可见，255 为出厂默认最大亮度。
+     *          这是一种纯软件调光方式，不依赖外部 PWM 或限流电路。
+     *
+     * @note 此方法可在推流过程中实时调用，不影响帧渲染管线。
+     */
+    void setBrightness(uint8_t contrast);
+
+    /**
+     * @brief 在屏幕中央显示状态文本
+     *
+     * @param text C 风格字符串（建议不超过 18 个 ASCII 字符）
+     *
+     * @details 清空缓冲区后以 6×10 像素字体绘制水平居中、
+     *          垂直居中的文本。适用于连接状态、错误信息等简短提示。
+     *          此方法会覆盖当前帧内容。
+     */
+    void showStatus(const char *text);
+
+    /**
+     * @brief 获取当前亮度值
+     *
+     * @return 当前对比度设置值 [0, 255]
+     */
+    uint8_t getBrightness() const;
+
+private:
+    U8G2_SSD1306_128X64_NONAME_F_HW_I2C m_u8g2;  ///< U8g2 显示器驱动实例
+    uint8_t m_brightness;                          ///< 当前亮度值缓存
+};
+
+#endif // DISPLAY_MANAGER_H
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\include\NetworkManager.h =====
+
+/**
+ * @file    NetworkManager.h
+ * @brief   V2 网络内核 — AP/STA 双状态机 + WebSocket 流媒体 + 凭据持久化
+ *
+ * @details 本模块是 V2 架构唯一的"网络层"，统一管理 WiFi STA/AP、WebSocket 推流、凭据持久化
+ *          WebServerManager 的冗余设计，实现高内聚低耦合：
+ *
+ *          启动序列：
+ *          begin() → LittleFS 加载 /wifi.txt → STA 3次重试 → 失败则 AP
+ *
+ *          ┌─────────────────────────────────────────────┐
+ *          │              NetworkManager                  │
+ *          │  WiFi STA/AP  │  WebSocket:81  │  凭据 I/O  │
+ *          └──────┬────────┴───────▲────────┴─────┬──────┘
+ *                 │                │               │
+ *          静态查询接口       帧/亮度回调      saveWiFiAndReboot
+ *          isAPMode()      DisplayManager      WebServerManager
+ *
+ *          零外部依赖耦合：
+ *          - 不包含任何 OLED/U8g2/HTTP/DNS 代码
+ *          - 仅通过 std::function 回调与 DisplayManager 通信
+ *          - 仅通过静态方法向 WebServerManager 暴露状态和写入接口
+ *
+ * @warning begin() 在 STA 模式下会阻塞最多 45 秒（3次 × 15秒超时），
+ *          此期间不处理任何事件循环。
+ */
+
+#ifndef NETWORK_MANAGER_H
+#define NETWORK_MANAGER_H
+
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <WebSocketsServer.h>
+#include <LittleFS.h>
+#include <functional>
+
+class NetworkManager
+{
+public:
+    /* ================================================================== */
+    /*  类型定义                                                           */
+    /* ================================================================== */
+
+    /** @brief 网络运行模式 */
+    enum class Mode : uint8_t
+    {
+        INIT,
+        AP_CONFIG,
+        STATION_CONNECTED
+    };
+
+    using FrameCallback = std::function<void(uint8_t *payload, size_t length)>;
+    using BrightnessCallback = std::function<void(uint8_t brightness)>;
+
+    /* ================================================================== */
+    /*  常量                                                               */
+    /* ================================================================== */
+
+    static constexpr uint16_t WS_PORT       = 81;
+    static constexpr size_t   FRAME_SIZE    = 1024;
+    static constexpr uint8_t  BRIGHTNESS_MIN = 0;
+    static constexpr uint8_t  BRIGHTNESS_MAX = 255;
+    static constexpr uint8_t  MAX_RETRIES    = 3;
+
+    /* ================================================================== */
+    /*  构造函数                                                           */
+    /* ================================================================== */
+
+    NetworkManager();
+
+    /* ================================================================== */
+    /*  公有接口                                                           */
+    /* ================================================================== */
+
+    void begin(FrameCallback onFrame, BrightnessCallback onBrightness);
+    void loop();
+    static bool isAPMode();
+    static void saveWiFiAndReboot(const char *ssid, const char *pass);
+    uint8_t getClientCount();
+
+private:
+    /* ================================================================== */
+    /*  内部方法                                                           */
+    /* ================================================================== */
+
+    bool loadCredentials(String &ssid, String &pass);
+    bool connectWiFi(const char *ssid, const char *pass);
+    void startAPMode();
+    void startWebSocket();
+    static bool parseBrightnessCommand(const char *text, uint8_t &brightness);
+
+    /* ================================================================== */
+    /*  成员变量                                                           */
+    /* ================================================================== */
+
+    static Mode        s_mode;
+    WebSocketsServer   m_webSocket;
+    FrameCallback      m_onFrame;
+    BrightnessCallback m_onBrightness;
+
+    /* ================================================================== */
+    /*  常量                                                               */
+    /* ================================================================== */
+
+    static const char *CRED_FILE;
+    static const char *AP_SSID;
+};
+
+#endif // NETWORK_MANAGER_H
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\include\WebServerManager.h =====
+
+/**
+ * @file    WebServerManager.h
+ * @brief   V2 Web 服务器管理 — 模式感知页面分发 + DNS 劫持 + Captive Portal
+ *
+ * @details 本模块负责 HTTP (80 端口) 和 DNS (53 端口) 的所有逻辑。
+ *          根据 NetworkManager::isAPMode() 动态切换行为：
+ *
+ *          AP 模式 (离线):
+ *          - DNS 劫持 * → 192.168.4.1
+ *          - Captive Portal 精准拦截 (generate_204 等)
+ *          - GET / → LittleFS 直接提供 offline.html（配网表单）
+ *          - POST /api/setwifi → NetworkManager::saveWiFiAndReboot()
+ *
+ *          STA 模式 (在线):
+ *          - GET / → LittleFS 直接提供 index.html(.gz)（推流控制台）
+ *          - DNS 不启动
+ *
+ *          关键变更：
+ *          - AP 模式返回 offline.html（含 SSID/密码配网 + WebSocket 连接）
+ *          - STA 模式返回 index.html（完整推流控制台 + 视频选择 + 倍速调节等）
+ *          - 彻底废弃 302 重定向至 GitHub Pages
+ */
+
+#ifndef WEB_SERVER_MANAGER_H
+#define WEB_SERVER_MANAGER_H
+
+#include <Arduino.h>
+#include <ESP8266WebServer.h>
+#include <DNSServer.h>
+#include <LittleFS.h>
+
+class WebServerManager
+{
+public:
+    static constexpr uint16_t HTTP_PORT = 80;
+    static constexpr uint16_t DNS_PORT  = 53;
+
+    WebServerManager();
+    void begin();
+    void loop();
+
+private:
+    /** @brief 模式感知页面分发 — AP→offline.html, STA→index.html(.gz) */
+    void serveModePage();
+
+    /** @brief 配网 API — 接收 SSID/密码并持久化重启 */
+    void handleSetWiFi();
+
+    /** @brief 302 重定向至 /，用于 Captive Portal 检测端点 */
+    void redirectToRoot();
+
+    DNSServer        m_dnsServer;
+    ESP8266WebServer m_httpServer;
+};
+
+#endif // WEB_SERVER_MANAGER_H
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\src\DisplayManager.cpp =====
+
+/**
+ * @file    DisplayManager.cpp
+ * @brief   DisplayManager 类的方法实现
+ *
+ * @details 包含 OLED 初始化、I2C 800kHz 超频、XBM 帧渲染、
+ *          SSD1306 对比度亮度控制及状态文本居中显示。
+ */
+
+#include "DisplayManager.h"
+
+/* ========================================================================== */
+/*  构造函数                                                                  */
+/* ========================================================================== */
+
+DisplayManager::DisplayManager()
+    : m_u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE)
+    , m_brightness(BRIGHTNESS_DEFAULT)
+{
+}
+
+/* ========================================================================== */
+/*  begin() — I2C 超频 + 硬件初始化                                           */
+/* ========================================================================== */
+
+void DisplayManager::begin()
+{
+    // 步骤 1：将 I2C 时钟从默认 100kHz 提升至 800kHz
+    // 效果：1024 字节帧传输从 ~90ms 压缩至 ~15ms，轻松匹配 20fps 推流
+    m_u8g2.setBusClock(800000UL);
+
+    // 步骤 2：初始化 U8g2 驱动（配置 SSD1306 寄存器、分配帧缓冲区）
+    m_u8g2.begin();
+
+    // 步骤 3：清空缓冲区并推送初始空白帧（消除上电残留噪点）
+    m_u8g2.clearBuffer();
+    m_u8g2.sendBuffer();
+
+    // 步骤 4：设置为默认最大亮度
+    setBrightness(BRIGHTNESS_DEFAULT);
+
+    Serial.printf("[DISP] OLED 初始化完成 | I2C: 800kHz | 亮度: %u/255\n",
+                  BRIGHTNESS_DEFAULT);
+}
+
+/* ========================================================================== */
+/*  renderFrame() — 核心渲染出口（零延时，性能关键路径）                       */
+/* ========================================================================== */
+
+void DisplayManager::renderFrame(uint8_t *payload)
+{
+    // drawXBM 直接将 1024 字节位图写入 U8g2 内部缓冲区
+    // 参数：起始坐标 (0,0)，尺寸 128×64，数据指针
+    m_u8g2.drawXBM(0, 0, FRAME_WIDTH, FRAME_HEIGHT, payload);
+
+    // sendBuffer 通过 800kHz I2C 一次性推送整帧至 SSD1306
+    // 无延时、无阻塞等待 —— 追求极致绘制吞吐
+    m_u8g2.sendBuffer();
+}
+
+/* ========================================================================== */
+/*  setBrightness() — SSD1306 对比度寄存器控制                                 */
+/* ========================================================================== */
+
+void DisplayManager::setBrightness(uint8_t contrast)
+{
+    m_brightness = contrast;
+
+    // SSD1306 对比度设置命令序列：
+    //   0x81 → 对比度设置模式
+    //   0xXX → 对比度值（0x00 = 最暗, 0xFF = 最亮）
+    //
+    // U8g2 的 setContrast() 内部封装了此命令序列，
+    // 无需手动操作 I2C 寄存器
+    m_u8g2.setContrast(contrast);
+}
+
+/* ========================================================================== */
+/*  showStatus() — 居中状态文本                                                */
+/* ========================================================================== */
+
+void DisplayManager::showStatus(const char *text)
+{
+    m_u8g2.clearBuffer();
+
+    // 6×10 像素终端风格字体，清晰可读
+    m_u8g2.setFont(u8g2_font_6x10_tf);
+
+    // 水平居中
+    const uint8_t strWidth = m_u8g2.getStrWidth(text);
+    const uint8_t x = (FRAME_WIDTH - strWidth) / 2;
+
+    // 垂直居中（字体基线在字符下方，故偏移 10px 的一半 = 5px）
+    const uint8_t y = FRAME_HEIGHT / 2 + 5;
+
+    m_u8g2.drawStr(x, y, text);
+    m_u8g2.sendBuffer();
+}
+
+/* ========================================================================== */
+/*  getBrightness()                                                            */
+/* ========================================================================== */
+
+uint8_t DisplayManager::getBrightness() const
+{
+    return m_brightness;
+}
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\src\main.cpp =====
+
+/**
+ * @file    main.cpp
+ * @brief   BitStream V2 — 组装层（Composition Root）
+ *
+ * @details 三模块零耦合组装：
+ *          NetworkManager (WiFi STA/AP + WebSocket:81)
+ *          WebServerManager (HTTP:80 + DNS:53 + Captive Portal)
+ *          DisplayManager (OLED 800kHz XBM 渲染)
+ *
+ *          AP 模式实时反馈：通过 WiFiEventHandler 监听客户端接入/断开，
+ *          立即更新 OLED 屏幕和串口日志。
+ *
+ * @warning loop() 底部必须保留 delay(1) + yield()，
+ *          这是 ESP8266 单核 WiFi 栈不被推流饿死的唯一保障。
+ */
+
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include "NetworkManager.h"
+#include "WebServerManager.h"
+#include "DisplayManager.h"
+
+/* ======================================================================== */
+/*  全局模块实例（文件作用域，构造即初始化，零堆分配）                          */
+/* ======================================================================== */
+
+NetworkManager  network;
+WebServerManager webServer;
+DisplayManager  display;
+
+/* ======================================================================== */
+/*  AP 客户端事件监听器（静态句柄，防止 Lambda 捕获被过早释放）                */
+/* ======================================================================== */
+
+static WiFiEventHandler apConnHandler;
+static WiFiEventHandler apDisconnHandler;
+
+/* ======================================================================== */
+/*  setup                                                                    */
+/* ======================================================================== */
+
+void setup()
+{
+    /* ---- 0. 串口 ------------------------------------------------------ */
+    Serial.begin(115200);
+    delay(300);
+    Serial.println(F("\n============================================"));
+    Serial.println(F("  BitStream V2 - ESP8266 OLED Streamer      "));
+    Serial.println(F("============================================"));
+    Serial.printf ("[MAIN] 启动时间: %lu ms | 复位原因: %s\n",
+                   millis(), ESP.getResetReason().c_str());
+
+    /* ---- 1. 显示内核最先启动 ------------------------------------------ */
+    Serial.println(F("[MAIN] Phase 1/4: 显示内核初始化"));
+    display.begin();
+    display.showStatus("Booting...");
+
+    /* ---- 2. 网络内核启动（内部阻塞最多 45s STA 重试 / 直接进入 AP）--- */
+    Serial.println(F("[MAIN] Phase 2/4: 网络内核启动"));
+    network.begin(
+        [](uint8_t *payload, size_t /*length*/) {
+            display.renderFrame(payload);
+        },
+        [](uint8_t brightness) {
+            display.setBrightness(brightness);
+        }
+    );
+
+    /* ---- 3. 注册 AP 客户端事件 — OLED + 串口实时反馈 ----------------- */
+    apConnHandler = WiFi.onSoftAPModeStationConnected(
+        [](const WiFiEventSoftAPModeStationConnected& evt) {
+            Serial.printf("[MAIN] 设备接入 AP! "
+                          "MAC: %02x:%02x:%02x:%02x:%02x:%02x, AID: %d\n",
+                          MAC2STR(evt.mac), evt.aid);
+            display.showStatus("Client Connected!\n192.168.4.1");
+        });
+
+    apDisconnHandler = WiFi.onSoftAPModeStationDisconnected(
+        [](const WiFiEventSoftAPModeStationDisconnected& evt) {
+            Serial.printf("[MAIN] 设备断开 AP! "
+                          "MAC: %02x:%02x:%02x:%02x:%02x:%02x, AID: %d\n",
+                          MAC2STR(evt.mac), evt.aid);
+            if (WiFi.softAPgetStationNum() == 0)
+            {
+                display.showStatus("AP:OLED-BitStream");
+            }
+        });
+
+    /* ---- 4. Web 服务启动（根据 network 的 AP/STA 状态动态配置路由）--- */
+    Serial.println(F("[MAIN] Phase 3/4: Web服务启动"));
+    webServer.begin();
+
+    /* ---- 5. OLED 显示当前状态 ---------------------------------------- */
+    Serial.println(F("[MAIN] Phase 4/4: 启动完成，进入主循环"));
+    if (NetworkManager::isAPMode())
+    {
+        display.showStatus("AP:OLED-BitStream");
+        Serial.println(F("[MAIN] AP 模式 — 热点: OLED-BitStream (无密码)"));
+        Serial.println(F("[MAIN] 请连接热点，浏览器将自动弹出离线控制台"));
+    }
+    else
+    {
+        const String ip = WiFi.localIP().toString();
+        display.showStatus(ip.c_str());
+        Serial.printf("[MAIN] STA 已连接 — IP: %s\n", ip.c_str());
+        Serial.printf("[MAIN] 访问 http://%s/ 自动跳转至控制台\n", ip.c_str());
+        delay(1200);
+    }
+
+    Serial.printf("[MAIN] WebSocket 服务就绪 — 端口 %u\n", NetworkManager::WS_PORT);
+}
+
+/* ======================================================================== */
+/*  loop                                                                     */
+/* ======================================================================== */
+
+void loop()
+{
+    network.loop();   // WebSocket 帧接收 + 指令解析 + ACK 锁步
+    webServer.loop(); // HTTP 路由 + DNS 劫持
+
+    /* ---- 每30秒输出系统心跳 ------------------------------------------ */
+    static uint32_t s_lastBeat = 0;
+    const uint32_t now = millis();
+    if (now - s_lastBeat >= 30000) {
+        s_lastBeat = now;
+        Serial.printf("[MAIN] 心跳 | 运行: %u s | 堆: %u B | 模式: %s | WS客户端: %u\n",
+                      now / 1000, ESP.getFreeHeap(),
+                      NetworkManager::isAPMode() ? "AP" : "STA",
+                      network.getClientCount());
+    }
+
+    /* ── 防卡死：确保 ESP8266 WiFi 射频栈能及时处理 TCP ACK ──────────
+     *   ESP8266 是单核芯片，WiFi 协议栈与用户代码共享 CPU。
+     *   若 loop() 不主动让出时间片，TCP 收包队列将堆积，
+     *   导致发送端 bufferedAmount 虚高、延迟雪崩。
+     *   delay(1) 将 CPU 让渡 1ms → WiFi 栈处理收发包 → 返回用户代码。
+     *   yield() 是 backup，确保更底层的后台任务也能执行。
+     */
+    delay(1);
+    yield();
+}
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\src\NetworkManager.cpp =====
+
+/**
+ * @file    NetworkManager.cpp
+ * @brief   NetworkManager — AP/STA 双状态机 + WebSocket ACK 锁步完整实现
+ *
+ * @details 启动序列：
+ *          LittleFS 挂载 → /wifi.txt 加载 → STA 3次重试 → 失败则 AP
+ *
+ *          WebSocket 协议：
+ *          PC → ESP   BIN  1024B XBM 帧
+ *          ESP → PC   TXT  "ACK"
+ *          PC → ESP   TXT  "BRIGHTNESS:0~255"
+ *          ESP → PC   TXT  "OK"
+ */
+
+#include "NetworkManager.h"
+
+/* ========================================================================== */
+/*  静态成员初始化                                                             */
+/* ========================================================================== */
+
+NetworkManager::Mode NetworkManager::s_mode = NetworkManager::Mode::INIT;
+
+const char* NetworkManager::CRED_FILE = "/wifi.txt";
+const char* NetworkManager::AP_SSID   = "OLED-BitStream";
+
+/* ========================================================================== */
+/*  构造函数                                                                  */
+/* ========================================================================== */
+
+NetworkManager::NetworkManager()
+    : m_webSocket(WS_PORT)
+{
+}
+
+/* ========================================================================== */
+/*  begin() — 入口：凭据加载 → STA / AP → WebSocket                            */
+/* ========================================================================== */
+
+void NetworkManager::begin(FrameCallback onFrame, BrightnessCallback onBrightness)
+{
+    m_onFrame      = onFrame;
+    m_onBrightness = onBrightness;
+
+    /* ---- 1. 挂载 LittleFS ------------------------------------------------- */
+    Serial.println(F("[NET] 挂载 LittleFS ..."));
+    if (!LittleFS.begin())
+    {
+        Serial.println(F("[NET] 挂载失败，尝试格式化 ..."));
+        if (!LittleFS.format() || !LittleFS.begin())
+        {
+            Serial.println(F("[NET] 文件系统不可用，直接进入 AP 模式"));
+            startAPMode();
+            startWebSocket();
+            return;
+        }
+    }
+    Serial.println(F("  [OK]"));
+
+    /* ---- 2. 加载凭据 ----------------------------------------------------- */
+    String savedSSID, savedPass;
+    const bool hasCreds = loadCredentials(savedSSID, savedPass);
+
+    if (hasCreds && savedSSID.length() > 0)
+    {
+        Serial.printf("[NET] 找到凭据: SSID=\"%s\"\n", savedSSID.c_str());
+
+        if (connectWiFi(savedSSID.c_str(), savedPass.c_str()))
+        {
+            s_mode = Mode::STATION_CONNECTED;
+        }
+        else
+        {
+            Serial.println(F("[NET] 3次连接均失败，清除旧凭据，进入 AP"));
+            LittleFS.remove(CRED_FILE);
+            startAPMode();
+        }
+    }
+    else
+    {
+        Serial.println(F("[NET] 无已保存凭据，进入 AP 模式"));
+        startAPMode();
+    }
+
+    /* ---- 3. 启动 WebSocket（双模式均运行）--------------------------------- */
+    startWebSocket();
+}
+
+/* ========================================================================== */
+/*  loop()                                                                     */
+/* ========================================================================== */
+
+void NetworkManager::loop()
+{
+    m_webSocket.loop();
+}
+
+/* ========================================================================== */
+/*  isAPMode()                                                                 */
+/* ========================================================================== */
+
+bool NetworkManager::isAPMode()
+{
+    return s_mode == Mode::AP_CONFIG;
+}
+
+/* ========================================================================== */
+/*  saveWiFiAndReboot()                                                        */
+/* ========================================================================== */
+
+void NetworkManager::saveWiFiAndReboot(const char *ssid, const char *pass)
+{
+    Serial.printf("[NET] 保存凭据: SSID=\"%s\"\n", ssid);
+
+    File f = LittleFS.open(CRED_FILE, "w");
+    if (f)
+    {
+        f.print(ssid);
+        f.print('\n');
+        f.print(pass);
+        f.close();
+        Serial.printf("[NET] 凭据已写入 %s\n", CRED_FILE);
+    }
+    else
+    {
+        Serial.println(F("[NET] 无法创建凭据文件"));
+    }
+
+    Serial.println(F("[NET] 500ms 后重启 ..."));
+    delay(500);
+    ESP.restart();
+}
+
+/* ========================================================================== */
+/*  getClientCount()                                                           */
+/* ========================================================================== */
+
+uint8_t NetworkManager::getClientCount()
+{
+    return m_webSocket.connectedClients();
+}
+
+/* ========================================================================== */
+/*  私有 — loadCredentials()                                                   */
+/* ========================================================================== */
+
+bool NetworkManager::loadCredentials(String &ssid, String &pass)
+{
+    if (!LittleFS.exists(CRED_FILE))
+        return false;
+
+    File f = LittleFS.open(CRED_FILE, "r");
+    if (!f)
+    {
+        Serial.println(F("[NET] 无法打开凭据文件"));
+        return false;
+    }
+
+    // 格式: ssid\npassword
+    ssid = f.readStringUntil('\n');
+    pass = f.readStringUntil('\n');
+    f.close();
+
+    ssid.trim();
+    pass.trim();
+
+    if (ssid.length() == 0)
+    {
+        Serial.println(F("[NET] 凭据文件中 SSID 为空"));
+        return false;
+    }
+
+    return true;
+}
+
+/* ========================================================================== */
+/*  私有 — connectWiFi() — 3次重试 × 15s超时 × 1s间隔                        */
+/* ========================================================================== */
+
+bool NetworkManager::connectWiFi(const char *ssid, const char *pass)
+{
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, pass);
+
+    for (uint8_t attempt = 0; attempt < MAX_RETRIES; ++attempt)
+    {
+        Serial.printf("[NET] 连接 WiFi (第 %u/%u 次): \"%s\" ...\n",
+                      attempt + 1, MAX_RETRIES, ssid);
+
+        const unsigned long deadline = millis() + 15000UL;
+
+        while (WiFi.status() != WL_CONNECTED)
+        {
+            if (millis() > deadline)
+            {
+                Serial.printf("[NET] 第 %u 次连接超时 (15s)\n", attempt + 1);
+                break;
+            }
+            delay(200);
+            Serial.print('.');
+        }
+
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            Serial.println();
+            Serial.printf("[NET] WiFi 连接成功! IP: %s, RSSI: %d dBm\n",
+                          WiFi.localIP().toString().c_str(), WiFi.RSSI());
+
+            // 回写凭据确保最新正确
+            File f = LittleFS.open(CRED_FILE, "w");
+            if (f)
+            {
+                f.print(ssid);
+                f.print('\n');
+                f.print(pass);
+                f.close();
+            }
+
+            return true;
+        }
+
+        if (attempt < MAX_RETRIES - 1)
+        {
+            Serial.println(F("[NET] 等待 1 秒后重试 ..."));
+            delay(1000);
+        }
+    }
+
+    Serial.println(F("[NET] 全部 3 次重试均失败"));
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    return false;
+}
+
+/* ========================================================================== */
+/*  私有 — startAPMode()                                                       */
+/* ========================================================================== */
+
+void NetworkManager::startAPMode()
+{
+    Serial.println(F("[NET] >>> 进入 AP 模式 <<<"));
+
+    WiFi.mode(WIFI_AP);
+
+    // 配置静态 IP: 192.168.4.1 / 255.255.255.0
+    const IPAddress apIP(192, 168, 4, 1);
+    const IPAddress subnet(255, 255, 255, 0);
+
+    WiFi.softAPConfig(apIP, apIP, subnet);
+    WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);  // 无密码，信道 1，隐藏关闭，最大 4 客户端
+
+    Serial.printf("[NET] AP 热点已开放: SSID=\"%s\" (无密码)\n", AP_SSID);
+    Serial.printf("[NET] IP: %s\n", apIP.toString().c_str());
+
+    s_mode = Mode::AP_CONFIG;
+}
+
+/* ========================================================================== */
+/*  私有 — startWebSocket() — 注册双回调 + ACK 锁步                            */
+/* ========================================================================== */
+
+void NetworkManager::startWebSocket()
+{
+    m_webSocket.begin();
+    Serial.printf("[NET] WebSocket 服务已启动 — 端口 %u\n", WS_PORT);
+
+    m_webSocket.onEvent(
+        [this](uint8_t clientNum, WStype_t type, uint8_t *payload, size_t length)
+        {
+            switch (type)
+            {
+            /* ---------------------------------------------------------- */
+            /*  客户端连接                                                   */
+            /* ---------------------------------------------------------- */
+            case WStype_CONNECTED:
+            {
+                const IPAddress remoteIP = m_webSocket.remoteIP(clientNum);
+                Serial.printf("[NET] 客户端 #%u 已连接 — IP: %s | 在线: %u\n",
+                              clientNum, remoteIP.toString().c_str(),
+                              m_webSocket.connectedClients());
+                break;
+            }
+
+            /* ---------------------------------------------------------- */
+            /*  客户端断开                                                   */
+            /* ---------------------------------------------------------- */
+            case WStype_DISCONNECTED:
+            {
+                Serial.printf("[NET] 客户端 #%u 已断开 | 剩余: %u\n",
+                              clientNum, m_webSocket.connectedClients());
+                break;
+            }
+
+            /* ---------------------------------------------------------- */
+            /*  二进制帧 — 推流数据入口                                        */
+            /* ---------------------------------------------------------- */
+            case WStype_BIN:
+            {
+                if (length == FRAME_SIZE)
+                {
+                    if (m_onFrame)
+                    {
+                        m_onFrame(payload, length);
+                    }
+                    m_webSocket.sendTXT(clientNum, "ACK");
+                }
+                else
+                {
+                    Serial.printf("[NET] 客户端 #%u 异常 BIN 帧: "
+                                  "期望 %u 字节，实际 %u 字节 | 首字节: 0x%02X\n",
+                                  clientNum, FRAME_SIZE, length,
+                                  length > 0 ? payload[0] : 0);
+                }
+                break;
+            }
+
+            /* ---------------------------------------------------------- */
+            /*  文本帧 — 控制指令入口                                          */
+            /* ---------------------------------------------------------- */
+            case WStype_TEXT:
+            {
+                const char *text = reinterpret_cast<const char *>(payload);
+                uint8_t brightness = 0;
+
+                if (parseBrightnessCommand(text, brightness))
+                {
+                    Serial.printf("[NET] 客户端 #%u 指令: 亮度 → %u\n",
+                                  clientNum, brightness);
+
+                    if (m_onBrightness)
+                    {
+                        m_onBrightness(brightness);
+                    }
+                    m_webSocket.sendTXT(clientNum, "OK");
+                }
+                else
+                {
+                    Serial.printf("[NET] 客户端 #%u 未知指令: \"%s\" (len=%u)\n",
+                                  clientNum, text, length);
+                }
+                break;
+            }
+
+            /* ---------------------------------------------------------- */
+            /*  PING/PONG/ERROR/FRAGMENT — 全事件日志                        */
+            /* ---------------------------------------------------------- */
+            default:
+            {
+                const char *typeName = "UNKNOWN";
+                switch (type)
+                {
+                case WStype_ERROR:                typeName = "ERROR";              break;
+                case WStype_PING:                 typeName = "PING";               break;
+                case WStype_PONG:                 typeName = "PONG";               break;
+                case WStype_FRAGMENT_BIN_START:   typeName = "FRAGMENT_BIN_START"; break;
+                case WStype_FRAGMENT_TEXT_START:  typeName = "FRAGMENT_TEXT_START";break;
+                case WStype_FRAGMENT:             typeName = "FRAGMENT";           break;
+                case WStype_FRAGMENT_FIN:         typeName = "FRAGMENT_FIN";       break;
+                default: break;
+                }
+                Serial.printf("[NET] 客户端 #%u WS事件: %s (type=%d, len=%u)\n",
+                              clientNum, typeName, static_cast<int>(type), length);
+                if (type == WStype_ERROR && payload && length > 0)
+                {
+                    Serial.printf("[NET] 客户端 #%u WS错误payload: %.*s\n",
+                                  clientNum, static_cast<int>(length), payload);
+                }
+                break;
+            }
+            }
+        });
+}
+
+/* ========================================================================== */
+/*  私有静态 — parseBrightnessCommand()                                        */
+/* ========================================================================== */
+
+bool NetworkManager::parseBrightnessCommand(const char *text, uint8_t &brightness)
+{
+    const char prefix[] = "BRIGHTNESS:";
+    constexpr size_t prefixLen = sizeof(prefix) - 1;
+
+    for (size_t i = 0; i < prefixLen; ++i)
+    {
+        char c = text[i];
+        if (c == '\0') return false;
+        if (c >= 'a' && c <= 'z') c -= 32;
+        if (c != prefix[i]) return false;
+    }
+
+    const char *numStr = text + prefixLen;
+    if (*numStr == '\0') return false;
+
+    uint16_t value = 0;
+    for (const char *p = numStr; *p != '\0'; ++p)
+    {
+        if (*p < '0' || *p > '9') return false;
+        value = value * 10 + (*p - '0');
+        if (value > 255) return false;
+    }
+
+    brightness = static_cast<uint8_t>(value);
+    return true;
+}
+
+
+===== D:\Data_Backup\BitStream_12864\BitStream_12864\src\WebServerManager.cpp =====
+
+/**
+ * @file    WebServerManager.cpp
+ * @brief   WebServerManager — 静态资源本地化 + DNS 劫持 + Captive Portal
+ *
+ * @details AP 模式：DNS 劫持 + Captive Portal + 提供 offline.html（配网表单）
+ *          STA 模式：仅提供 HTTP 服务，返回 index.html（推流控制台）
+ *          彻底摒弃 302 重定向至 GitHub Pages 的旧方案，
+ *          消除 HTTPS→ws:// Mixed Content 阻断问题。
+ */
+
+#include "WebServerManager.h"
+#include "NetworkManager.h"
+
+/* ========================================================================== */
+/*  常量 — 前端页面路径（AP 配网页 / STA 控制台页）                            */
+/* ========================================================================== */
+
+static const char* AP_CONFIG_PAGE    = "/offline.html";    // AP 模式：配网 + 连接
+static const char* CONSOLE_PAGE_GZ   = "/index.html.gz";   // STA 模式：完整控制台（压缩）
+static const char* CONSOLE_PAGE      = "/index.html";      // STA 模式：完整控制台（未压缩）
+
+/* ========================================================================== */
+/*  构造函数                                                                  */
+/* ========================================================================== */
+
+WebServerManager::WebServerManager()
+    : m_httpServer(HTTP_PORT)
+{
+}
+
+/* ========================================================================== */
+/*  begin() — 注册路由 + 启动 HTTP / DNS                                      */
+/* ========================================================================== */
+
+void WebServerManager::begin()
+{
+    /* ---- 1. DNS 劫持（仅 AP 模式）---------------------------------------- */
+    if (NetworkManager::isAPMode())
+    {
+        m_dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+        m_dnsServer.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
+
+        Serial.println(F("[WEB] DNS 劫持已启动 (53 → 192.168.4.1)"));
+    }
+
+    /* ---- 2. HTTP 路由注册 ------------------------------------------------ */
+
+    // 根路由 — 根据运行模式分发不同页面
+    //   AP 模式 → offline.html（配网表单 + 默认 IP 192.168.4.1）
+    //   STA 模式 → index.html（完整推流控制台）
+    m_httpServer.on("/", HTTP_GET, [this]() { serveModePage(); });
+
+    // 配网 API（仅 AP 模式下 offline.html 会调用）
+    m_httpServer.on("/api/setwifi", HTTP_POST,
+        [this]() { handleSetWiFi(); });
+
+    // ── Captive Portal 检测端点 ───────────────────────────────────────
+    // 全部 302 重定向至 /，让设备浏览器弹出强制门户
+
+    // Android
+    m_httpServer.on("/generate_204", HTTP_GET,
+        [this]() { redirectToRoot(); });
+
+    // Apple / iOS / macOS
+    m_httpServer.on("/hotspot-detect.html", HTTP_GET,
+        [this]() { redirectToRoot(); });
+    m_httpServer.on("/library/test/success.html", HTTP_GET,
+        [this]() { redirectToRoot(); });
+
+    // Firefox
+    m_httpServer.on("/canonical.html", HTTP_GET,
+        [this]() { redirectToRoot(); });
+    m_httpServer.on("/success.txt", HTTP_GET,
+        [this]() { redirectToRoot(); });
+
+    // Windows
+    m_httpServer.on("/ncsi.txt", HTTP_GET,
+        [this]() { redirectToRoot(); });
+    m_httpServer.on("/connecttest.txt", HTTP_GET,
+        [this]() { redirectToRoot(); });
+    m_httpServer.on("/redirect", HTTP_GET,
+        [this]() { redirectToRoot(); });
+    m_httpServer.on("/fwlink", HTTP_GET,
+        [this]() { redirectToRoot(); });
+
+    // Chrome
+    m_httpServer.on("/check_network_status.txt", HTTP_GET,
+        [this]() { redirectToRoot(); });
+
+    // 404 兜底 — 打印被拦截的原始 URI 后返回首页
+    m_httpServer.onNotFound([this]() {
+        Serial.printf("[WEB] 拦截未知请求: %s | 客户端: %s\n",
+                      m_httpServer.uri().c_str(),
+                      m_httpServer.client().remoteIP().toString().c_str());
+        redirectToRoot();
+    });
+
+    /* ---- 3. 启动 HTTP 服务 ---------------------------------------------- */
+    m_httpServer.begin();
+    if (NetworkManager::isAPMode())
+        Serial.printf("[WEB] HTTP 服务已启动 (端口 %u) | AP 配网模式 → offline.html\n", HTTP_PORT);
+    else
+        Serial.printf("[WEB] HTTP 服务已启动 (端口 %u) | STA 控制台模式 → index.html\n", HTTP_PORT);
+}
+
+/* ========================================================================== */
+/*  loop()                                                                     */
+/* ========================================================================== */
+
+void WebServerManager::loop()
+{
+    m_httpServer.handleClient();
+
+    // DNS 劫持仅在 AP 模式有效，STA 模式直接跳过
+    if (NetworkManager::isAPMode()) {
+        m_dnsServer.processNextRequest();
+        // 注意：已移除高频 DNS 刷屏日志，避免占用单片机串口资源
+    }
+}
+
+/* ========================================================================== */
+/*  路由处理器 — serveModePage()                                               */
+/*  @brief 根据当前运行模式返回对应页面                                         */
+/*         AP 模式 → offline.html（配网表单，默认 IP 192.168.4.1）              */
+/*         STA 模式 → index.html(.gz)（完整推流控制台）                         */
+/* ========================================================================== */
+
+void WebServerManager::serveModePage()
+{
+    const char* pageName;
+    const char* pageFile;
+
+    if (NetworkManager::isAPMode())
+    {
+        // AP 模式：提供配网页面，内置 SSID/密码表单和 WebSocket 连接
+        pageName = "offline.html (配网控制台)";
+        pageFile = AP_CONFIG_PAGE;
+    }
+    else
+    {
+        // STA 模式：提供完整推流控制台（视频文件选择、倍速、绿幕等）
+        // 优先使用 gzip 压缩版
+        if (LittleFS.exists(CONSOLE_PAGE_GZ))
+        {
+            pageFile = CONSOLE_PAGE_GZ;
+        }
+        else
+        {
+            pageFile = CONSOLE_PAGE;
+        }
+        pageName = "index.html (推流控制台)";
+    }
+
+    Serial.printf("[WEB] 命中路由: %s → 直出 %s | 客户端: %s\n",
+                  m_httpServer.uri().c_str(), pageName,
+                  m_httpServer.client().remoteIP().toString().c_str());
+
+    if (LittleFS.exists(pageFile))
+    {
+        File f = LittleFS.open(pageFile, "r");
+        if (f)
+        {
+            m_httpServer.streamFile(f, "text/html; charset=utf-8");
+            f.close();
+            return;
+        }
+    }
+
+    // 最终兜底：文件不存在
+    Serial.printf("[WEB] 页面文件 %s 不存在! 请上传至 data/\n", pageFile);
+    m_httpServer.send(500, "text/plain", "Page not found on ESP8266");
+}
+
+/* ========================================================================== */
+/*  路由处理器 — handleSetWiFi()                                               */
+/* ========================================================================== */
+
+void WebServerManager::handleSetWiFi()
+{
+    Serial.printf("[WEB] 命中路由: %s | 客户端: %s\n",
+                  m_httpServer.uri().c_str(),
+                  m_httpServer.client().remoteIP().toString().c_str());
+
+    const String ssid = m_httpServer.arg("ssid");
+    const String pass = m_httpServer.arg("pwd");
+
+    if (ssid.length() == 0)
+    {
+        m_httpServer.send(400, "text/plain", "ERROR: SSID required");
+        return;
+    }
+
+    Serial.printf("[WEB] 收到配网请求: SSID=\"%s\"\n", ssid.c_str());
+    m_httpServer.send(200, "text/plain", "OK: Rebooting...");
+    NetworkManager::saveWiFiAndReboot(ssid.c_str(), pass.c_str());
+}
+
+/* ========================================================================== */
+/*  路由处理器 — redirectToRoot()                                              */
+/*  @brief 302 重定向至 /，用于 Captive Portal 检测端点                         */
+/* ========================================================================== */
+
+void WebServerManager::redirectToRoot()
+{
+    const String uri = m_httpServer.uri();
+    const String clientIP = m_httpServer.client().remoteIP().toString();
+    Serial.printf("[WEB] 命中路由: %s | 客户端: %s → 302 /\n",
+                  uri.c_str(), clientIP.c_str());
+
+    m_httpServer.sendHeader("Location", "/", true);
+    m_httpServer.send(302, "text/plain", "");
+}

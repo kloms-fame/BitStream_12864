@@ -225,7 +225,7 @@ const hiddenCtx   = hiddenCvs.getContext('2d', {willReadFrequently:true});
 let ws         = null;
 let connected  = false;
 let streaming  = false;
-let isEspReady = true; let seeking = false; let justSeeked = false;
+let seeking = false; let justSeeked = false; let lastAckTime = 0;
 let greenScreen= false;
 let invert     = false;
 let threshold  = 128;
@@ -292,8 +292,7 @@ function connectWS() {
   ws.onmessage = (e) => {
     if (typeof e.data === 'string') {
       if (e.data === 'ACK') {
-        isEspReady = true;
-        if (ackTimeoutId) { clearTimeout(ackTimeoutId); ackTimeoutId = null; }
+        lastAckTime = performance.now();
       }
       // 'OK' from brightness command — silent
     }
@@ -359,13 +358,12 @@ function startStream() {
   if (!connected || !video.src || video.src === window.location.href) return;
 
   streaming    = true;
-  isEspReady   = true;
   lastVideoTime= -1;
   justSeeked   = true;
-  initBurst    = 5;
   frameSentCount=0;
   fpsAccum     = 0;
   fpsLastTime  = 0;
+  lastAckTime  = 0;
 
   video.play();
   updateStreamButton();
@@ -379,8 +377,6 @@ function startStream() {
 function stopStream() {
   if (!streaming) return;
   streaming = false;
-  isEspReady = true;
-  if (ackTimeoutId) { clearTimeout(ackTimeoutId); ackTimeoutId = null; }
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   if (video && !video.paused) video.pause();
   updateStreamButton();
@@ -411,7 +407,6 @@ function tick(timestamp) { if (seeking) return; if (!streaming || !isEspReady) r
 /* ============================== FRAME PROCESSOR ===================== */
 function processAndSend() {
   if (video.readyState < 2) return;
-  if (initBurst > 0) initBurst--;
 
   /* Step 1: Draw video → hidden canvas */
   hiddenCtx.drawImage(video, 0, 0, W, H);
@@ -471,17 +466,7 @@ function processAndSend() {
   ws.send(xbm.buffer);
   frameSentCount++;
 
-  /* Step 5: Lock + 200ms deadlock timeout */
-  isEspReady = false;
   lastVideoTime = video.currentTime; justSeeked = false;
-  if (ackTimeoutId) clearTimeout(ackTimeoutId);
-  ackTimeoutId = setTimeout(function() {
-    if (!isEspReady) {
-      isEspReady = true;
-      console.warn('[Stream] ACK timeout 200ms - auto unlock');
-    }
-    ackTimeoutId = null;
-  }, 200);
 }
 
 // 【防抖】seeking: 暂停帧发送，防止拖拽进度条时 WebSocket 缓冲区溢出
@@ -503,8 +488,6 @@ video.addEventListener("seeked", function() {
   seeking = false;
   justSeeked = true;
   lastVideoTime = -1;
-  isEspReady = true;               // 重置锁步，立即恢复帧发送
-  if (ackTimeoutId) { clearTimeout(ackTimeoutId); ackTimeoutId = null; }
   video.playbackRate = speed; // 锁定倍速，防止浏览器 seek 后重置
 });
 

@@ -360,8 +360,6 @@ class BitStreamApp {
 
     /* ---- 推流状态 ---- */
     this.streaming       = false;
-    this.isEspReady      = true;
-    this.ackTimeoutId    = null;
     this.lastVideoTime   = -1;
     this.seeking         = false;
     this.justSeeked      = false;
@@ -369,6 +367,7 @@ class BitStreamApp {
     this.fpsAccum        = 0;
     this.fpsLastTime     = 0;
     this.rafId           = null;
+    this._lastAckTime    = 0;       // ACK 监控（不阻塞发送）
 
     /* ---- 视频文件 ---- */
     this.currentVideoURL = null;
@@ -444,8 +443,7 @@ class BitStreamApp {
 
     this.ws.onmessage = (ev) => {
       if (typeof ev.data === "string" && ev.data === "ACK") {
-        this.isEspReady = true;
-        if (this.ackTimeoutId) { clearTimeout(this.ackTimeoutId); this.ackTimeoutId = null; }
+        this._lastAckTime = performance.now();  // 仅记录时间用于监控
       }
     };
   }
@@ -517,8 +515,6 @@ class BitStreamApp {
       this.seeking = false;
       this.justSeeked = true;
       this.lastVideoTime = -1;
-      this.isEspReady = true;
-      if (this.ackTimeoutId) { clearTimeout(this.ackTimeoutId); this.ackTimeoutId = null; }
       // 锁定倍速
       if (!this._speedChanging) this.videoPlayer.playbackRate = this.speed;
     });
@@ -634,14 +630,13 @@ class BitStreamApp {
     console.log("[Stream] START");
 
     this.streaming = true;
-    this.isEspReady = true;
     this.lastVideoTime = -1;
     this.justSeeked = true;      // 跳过首帧重复检测
-    this._initBurst = 5;         // 初始爆发：前 5 帧不检查重复，快速填充管线
     this.seeking = false;
     this.frameSentCount = 0;
     this.fpsAccum = 0;
     this.fpsLastTime = 0;
+    this._lastAckTime = 0;
 
     this.videoPlayer.play();
     this.updateStreamUI();
@@ -657,8 +652,6 @@ class BitStreamApp {
     if (!this.streaming) return;
     console.log("[Stream] STOP | frames: " + this.frameSentCount);
     this.streaming = false;
-    this.isEspReady = true;
-    if (this.ackTimeoutId) { clearTimeout(this.ackTimeoutId); this.ackTimeoutId = null; }
     if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
     if (this.videoPlayer && !this.videoPlayer.paused) this.videoPlayer.pause();
     this.updateStreamUI();
@@ -667,13 +660,16 @@ class BitStreamApp {
   tick(timestamp) {
     if (!this.streaming) return;
     if (this.seeking) return;
-    if (!this.isEspReady) return;
 
-    const ct = this.videoPlayer.currentTime;
-    // 初始爆发模式：前 N 帧不检查重复（burst 在 frame 实际发送后才递减）
-    if (this._initBurst <= 0 && ct === this.lastVideoTime && !this.justSeeked) {
+    // 安全检查：超过 3 秒无 ACK → ESP 可能离线
+    if (this._lastAckTime && (timestamp - this._lastAckTime > 3000)) {
+      console.warn("[Stream] ESP 3s 无 ACK，暂停发送");
       return;
     }
+
+    const ct = this.videoPlayer.currentTime;
+    // 仅在视频时间推进时才发送新帧（天然帧率限制）
+    if (ct === this.lastVideoTime && !this.justSeeked) return;
 
     this.fpsAccum++;
     if (!this.fpsLastTime) this.fpsLastTime = timestamp;
@@ -689,8 +685,6 @@ class BitStreamApp {
   processAndSendFrame() {
     const video = this.videoPlayer;
     if (!video || video.readyState < 2) return;
-    // 仅在 frame 实际处理后才递减 burst 计数
-    if (this._initBurst > 0) this._initBurst--;
 
     /* Step 1: Draw to hidden canvas */
     this.hiddenCtx.drawImage(video, 0, 0, 128, 64);
@@ -747,20 +741,8 @@ class BitStreamApp {
     }
     this.ws.send(xbm.buffer);
     this.frameSentCount++;
-
-    /* Step 5: Lock + 200ms deadlock timeout */
-    this.isEspReady = false;
     this.lastVideoTime = video.currentTime;
     this.justSeeked = false;
-    if (this.ackTimeoutId) clearTimeout(this.ackTimeoutId);
-    const self = this;
-    this.ackTimeoutId = setTimeout(function() {
-      if (!self.isEspReady) {
-        self.isEspReady = true;
-        console.warn("[Stream] ACK timeout 200ms");
-      }
-      self.ackTimeoutId = null;
-    }, 200);
   }
 }
 
