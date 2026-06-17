@@ -2,552 +2,767 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BitStream · ESP8266 OLED 推流控制台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>BitStream V2 · OLED 推流控制台</title>
 <style>
-  :root {
-    --bg:       #121212;
-    --surface:  #1a1a1a;
-    --accent:   #00ffcc;
-    --accent-dim: rgba(0,255,204,0.10);
-    --text:     #eaeaea;
-    --muted:    #777;
-    --danger:   #ff4466;
-    --warn:     #ffaa00;
-    --border:   #2a2a2a;
-    --radius:   10px;
-  }
-  *{margin:0;padding:0;box-sizing:border-box;}
-  body{
-    background:radial-gradient(ellipse at 50% 0%,#1a1a2e 0%,#121212 70%);
-    color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
-    display:flex;flex-direction:column;align-items:center;
-    padding:40px 16px 60px;min-height:100vh;
-    -webkit-font-smoothing:antialiased;
-  }
+/* ====================================================================== */
+/*  CSS Custom Properties — 赛博朋克暗黑主题体系                            */
+/* ====================================================================== */
+:root {
+  --bg-base:       #0a0a0f;
+  --bg-surface:    #111118;
+  --bg-card:       #16161f;
+  --bg-input:      #0d0d14;
+  --border:        #1e1e2e;
+  --border-hover:  #00ffcc33;
+  --border-active: #00ffcc;
+  --accent:        #00ffcc;
+  --accent-dim:    #00cc9940;
+  --accent-glow:   0 0 12px rgba(0,255,204,0.25);
+  --text-primary:  #e0e0e8;
+  --text-secondary:#8888a0;
+  --text-muted:    #555566;
+  --danger:        #ff4477;
+  --danger-glow:   0 0 10px rgba(255,68,119,0.3);
+  --warn:          #ffaa33;
+  --success:       #00ffcc;
+  --radius:        8px;
+  --radius-sm:     4px;
+  --font-mono:     'SF Mono','Cascadia Code','JetBrains Mono','Consolas',monospace;
+  --font-ui:       -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+}
 
-  h1{
-    font-size:1.8rem;font-weight:700;letter-spacing:6px;margin-bottom:36px;
-    background:linear-gradient(135deg,var(--accent) 0%,#00d4aa 100%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-    background-clip:text;
-    filter:drop-shadow(0 0 18px rgba(0,255,204,0.4));
-  }
+/* ====================================================================== */
+/*  Reset & Base                                                           */
+/* ====================================================================== */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{font-size:15px;-webkit-font-smoothing:antialiased}
+body{
+  background:var(--bg-base);
+  background-image:
+    radial-gradient(ellipse at 50% 0%,#1a1a3040 0%,transparent 60%),
+    repeating-linear-gradient(0deg,transparent,transparent 2px,var(--bg-base) 2px,var(--bg-base) 4px);
+  color:var(--text-primary);
+  font-family:var(--font-ui);
+  min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:32px 16px 60px;
+}
 
-  .card{
-    background:var(--surface);border:1px solid var(--border);
-    border-radius:var(--radius);padding:20px 24px;
-    width:100%;max-width:560px;margin-bottom:16px;
-    backdrop-filter:blur(4px);transition:border-color .3s,box-shadow .3s;
-  }
-  .card:hover{border-color:#3a3a3a;box-shadow:0 0 24px rgba(0,255,204,0.04);}
+/* ====================================================================== */
+/*  Header — 终端风格 ASCII 标识                                            */
+/* ====================================================================== */
+.header{
+  text-align:center;margin-bottom:36px;
+}
+.header .ascii{
+  font-family:var(--font-mono);font-size:11px;line-height:1.15;
+  color:var(--accent);white-space:pre;opacity:.9;
+  margin-bottom:8px;
+  text-shadow:0 0 20px rgba(0,255,204,.4);
+}
+.header h1{
+  font-size:1.1rem;font-weight:600;letter-spacing:8px;
+  color:var(--accent);text-transform:uppercase;
+  text-shadow:var(--accent-glow);
+}
+.header .ver{
+  font-family:var(--font-mono);font-size:.65rem;
+  color:var(--text-muted);letter-spacing:3px;margin-top:4px;
+}
 
-  .card-title{
-    color:var(--accent);font-size:.72rem;font-weight:600;
-    text-transform:uppercase;letter-spacing:3px;margin-bottom:16px;
-    padding-bottom:10px;border-bottom:1px solid var(--border);
-    display:flex;align-items:center;gap:8px;
-  }
-  .card-title::before{
-    content:'';display:inline-block;
-    width:6px;height:6px;background:var(--accent);border-radius:50%;
-    box-shadow:0 0 8px var(--accent);
-  }
+/* ====================================================================== */
+/*  Card Container                                                         */
+/* ====================================================================== */
+.card{
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:18px 22px;width:100%;max-width:620px;margin-bottom:14px;
+  backdrop-filter:blur(6px);
+  transition:border-color .3s,box-shadow .3s;
+  position:relative;overflow:hidden;
+}
+.card:hover{border-color:var(--border-hover)}
+.card::before{
+  content:'''';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accent-dim),transparent);
+  opacity:0;transition:opacity .4s;
+}
+.card:hover::before{opacity:1}
 
-  /* ── 连接状态栏 ── */
-  .status-row{
-    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-  }
-  .status-dot{
-    width:10px;height:10px;border-radius:50%;flex-shrink:0;
-    transition:all .3s;
-  }
-  .status-dot.on{background:var(--accent);box-shadow:0 0 10px var(--accent);animation:pulse 2s infinite;}
-  .status-dot.off{background:var(--danger);box-shadow:0 0 6px var(--danger);}
+.card-header{
+  display:flex;align-items:center;gap:8px;margin-bottom:14px;
+  padding-bottom:10px;border-bottom:1px solid var(--border);
+}
+.card-header .dot{
+  width:6px;height:6px;border-radius:50%;flex-shrink:0;
+  background:var(--accent);box-shadow:0 0 6px var(--accent);
+}
+.card-header .dot.off{background:var(--danger);box-shadow:0 0 6px var(--danger)}
+.card-title{
+  font-size:.68rem;font-weight:600;letter-spacing:3px;
+  color:var(--accent);text-transform:uppercase;
+}
 
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+/* ====================================================================== */
+/*  Connection Panel                                                       */
+/* ====================================================================== */
+.conn-row{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.conn-input{
+  flex:1;min-width:140px;padding:9px 12px;
+  background:var(--bg-input);border:1px solid var(--border);
+  border-radius:var(--radius-sm);color:var(--text-primary);
+  font-family:var(--font-mono);font-size:.78rem;outline:none;
+  transition:border-color .25s;
+}
+.conn-input:focus{border-color:var(--accent);box-shadow:var(--accent-glow)}
+.conn-input::placeholder{color:var(--text-muted)}
 
-  .status-info{flex:1;min-width:0;}
-  .status-ip{font-family:'SF Mono','Cascadia Code','Consolas',monospace;font-size:.82rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .status-meta{font-size:.68rem;color:var(--muted);margin-top:2px;}
+.btn{
+  padding:9px 18px;border:1px solid var(--accent);border-radius:var(--radius-sm);
+  background:transparent;color:var(--accent);
+  font-family:var(--font-ui);font-size:.72rem;font-weight:600;cursor:pointer;
+  letter-spacing:1.5px;text-transform:uppercase;
+  transition:all .25s;white-space:nowrap;
+}
+.btn:hover:not(:disabled){
+  background:var(--accent);color:var(--bg-base);
+  box-shadow:var(--accent-glow);
+}
+.btn:active:not(:disabled){transform:scale(.96)}
+.btn:disabled{opacity:.25;cursor:not-allowed;border-color:var(--border);color:var(--text-muted)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.btn.danger:hover:not(:disabled){background:var(--danger);color:#fff;box-shadow:var(--danger-glow)}
 
-  .ping-badge{
-    font-family:'SF Mono','Cascadia Code','Consolas',monospace;
-    font-size:.7rem;padding:4px 10px;border-radius:20px;
-    border:1px solid var(--border);color:var(--muted);
-    white-space:nowrap;
-  }
-  .ping-badge.good{border-color:var(--accent);color:var(--accent);box-shadow:0 0 8px var(--accent-dim);}
-  .ping-badge.warn{border-color:var(--warn);color:var(--warn);}
-  .ping-badge.bad{border-color:var(--danger);color:var(--danger);}
+.status-badge{
+  font-family:var(--font-mono);font-size:.65rem;padding:4px 10px;border-radius:12px;
+  border:1px solid var(--border);color:var(--text-muted);white-space:nowrap;
+}
+.status-badge.on{border-color:var(--accent);color:var(--accent);box-shadow:0 0 8px rgba(0,255,204,.12)}
+.status-badge.off{border-color:var(--danger);color:var(--danger)}
 
-  /* ── 视频播放中枢 ── */
-  video{
-    width:100%;border-radius:8px;background:#000;
-    border:1px solid var(--border);
-    display:block;outline:none;
-  }
-  video:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim);}
+.ping{font-family:var(--font-mono);font-size:.6rem;color:var(--text-muted);margin-left:auto}
 
-  .file-row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;}
-  input[type="file"]{display:none;}
+/* ====================================================================== */
+/*  Video & Preview — 左右并排                                              */
+/* ====================================================================== */
+.media-grid{
+  display:grid;grid-template-columns:1fr 128px;gap:12px;align-items:start;
+}
+@media(max-width:480px){.media-grid{grid-template-columns:1fr}}
 
-  .btn{
-    padding:9px 20px;border:1px solid var(--accent);border-radius:8px;
-    background:transparent;color:var(--accent);
-    font-family:inherit;font-size:.78rem;font-weight:600;
-    cursor:pointer;letter-spacing:1px;
-    transition:all .25s;white-space:nowrap;text-transform:uppercase;
-  }
-  .btn:hover:not(:disabled){background:var(--accent);color:#121212;box-shadow:0 0 18px rgba(0,255,204,0.35);}
-  .btn:active:not(:disabled){transform:scale(.97);}
-  .btn:disabled{opacity:.25;cursor:not-allowed;border-color:var(--border);color:var(--muted);}
+video{
+  width:100%;border-radius:var(--radius-sm);background:#000;
+  border:1px solid var(--border);display:block;outline:none;
+}
+video:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
 
-  .btn-file{border-style:dashed;}
+.preview-wrap{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+}
+.preview-wrap canvas{
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  image-rendering:pixelated;background:#000;
+  width:128px;height:64px;
+}
+.preview-label{
+  font-family:var(--font-mono);font-size:.55rem;color:var(--text-muted);
+  letter-spacing:1px;text-transform:uppercase;
+}
 
-  .file-name{font-size:.74rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
+/* ====================================================================== */
+/*  File Row                                                               */
+/* ====================================================================== */
+.file-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+input[type=file]{display:none}
+.btn-file{border-style:dashed}
+.file-name{
+  font-family:var(--font-mono);font-size:.68rem;color:var(--text-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;
+}
 
-  /* ── 控制面板 ── */
-  .slider-group{margin-bottom:14px;}
-  .slider-label{display:flex;justify-content:space-between;align-items:center;font-size:.74rem;color:var(--muted);margin-bottom:6px;}
-  .slider-val{color:var(--accent);font-family:'SF Mono','Cascadia Code','Consolas',monospace;font-weight:600;}
+/* ====================================================================== */
+/*  Controls — 滑块 & 复选框                                                */
+/* ====================================================================== */
+.ctrl-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;
+}
+@media(max-width:500px){.ctrl-grid{grid-template-columns:1fr}}
 
-  input[type="range"]{
-    -webkit-appearance:none;appearance:none;width:100%;height:6px;
-    border-radius:3px;background:#2a2a2a;outline:none;
-    transition:background .2s;
-  }
-  input[type="range"]::-webkit-slider-thumb{
-    -webkit-appearance:none;appearance:none;
-    width:18px;height:18px;border-radius:50%;
-    background:var(--accent);cursor:pointer;
-    box-shadow:0 0 10px rgba(0,255,204,0.5);
-  }
+.slider-group{display:flex;flex-direction:column;gap:4px}
+.slider-row{display:flex;justify-content:space-between;align-items:center}
+.slider-label{
+  font-size:.68rem;color:var(--text-secondary);letter-spacing:.5px;
+}
+.slider-val{
+  font-family:var(--font-mono);font-size:.72rem;color:var(--accent);font-weight:600;
+  min-width:38px;text-align:right;
+}
 
-  select{
-    padding:8px 12px;background:#111;border:1px solid var(--border);
-    border-radius:8px;color:var(--text);font-family:inherit;font-size:.78rem;
-    outline:none;cursor:pointer;transition:border-color .25s;
-  }
-  select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim);}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:5px;
+  border-radius:3px;background:var(--border);outline:none;
+  transition:background .2s;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:16px;height:16px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--bg-card);
+  cursor:pointer;box-shadow:0 0 8px rgba(0,255,204,.3);
+  transition:box-shadow .2s;
+}
+input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 14px rgba(0,255,204,.5)}
+input[type=range]::-moz-range-thumb{
+  width:16px;height:16px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--bg-card);
+  cursor:pointer;box-shadow:0 0 8px rgba(0,255,204,.3);
+}
 
-  .fps-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
-  .fps-label{font-size:.74rem;color:var(--muted);}
+/* ====================================================================== */
+/*  Checkboxes                                                             */
+/* ====================================================================== */
+.check-row{display:flex;gap:20px;flex-wrap:wrap;align-items:center}
+.check-item{display:flex;align-items:center;gap:7px;cursor:pointer}
+.check-item input[type=checkbox]{display:none}
+.check-box{
+  width:16px;height:16px;border:1px solid var(--border);border-radius:3px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .2s;flex-shrink:0;
+}
+.check-item input:checked + .check-box{
+  background:var(--accent);border-color:var(--accent);box-shadow:0 0 6px rgba(0,255,204,.3);
+}
+.check-box::after{
+  content:'''';width:8px;height:8px;background:var(--bg-card);
+  clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%);
+  opacity:0;transition:opacity .15s;
+}
+.check-item input:checked + .check-box::after{opacity:1}
+.check-text{font-size:.7rem;color:var(--text-secondary);letter-spacing:.5px}
 
+/* ====================================================================== */
+/*  Footer                                                                 */
+/* ====================================================================== */
+.footer{
+  font-family:var(--font-mono);font-size:.6rem;color:var(--text-muted);
+  text-align:center;letter-spacing:2px;margin-top:auto;padding-top:24px;
+}
+.footer .accent{color:var(--accent)}
 
-  /* ── 极客复选框 ── */
-  .checkbox-row{display:flex;gap:20px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
-  .geek-check{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.74rem;color:var(--muted);user-select:none;}
-  .geek-check input[type="checkbox"]{display:none;}
-  .geek-check .check-box{
-    width:18px;height:18px;border:1px solid var(--border);border-radius:4px;
-    display:flex;align-items:center;justify-content:center;
-    transition:all .25s;flex-shrink:0;
-  }
-  .geek-check .check-box::after{
-    content:'';width:8px;height:8px;border-radius:2px;
-    background:transparent;transition:background .25s;
-  }
-  .geek-check input:checked+.check-box{border-color:var(--accent);box-shadow:0 0 8px var(--accent-dim);}
-  .geek-check input:checked+.check-box::after{background:var(--accent);}
-  .geek-check:hover .check-box{border-color:#444;}
-  /* ── OLED 预览 ── */
-  .preview-wrap{display:flex;justify-content:center;padding:8px 0 2px;}
-  canvas#preview{
-    image-rendering:pixelated;image-rendering:crisp-edges;
-    width:512px;height:256px;border:2px solid #333;border-radius:6px;
-    background:#000;box-shadow:0 0 30px rgba(0,255,204,0.06);
-  }
-
-  .stream-stats{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;color:var(--muted);margin-top:10px;}
-  .stream-stats .fps{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums;}
-
-  /* ── 背压监控栏 ── */
-  .backpressure-bar{
-    display:flex;justify-content:space-between;align-items:center;
-    margin-top:8px;padding:8px 12px;
-    background:rgba(255,68,102,0.06);border:1px solid rgba(255,68,102,0.15);
-    border-radius:6px;font-size:.68rem;font-family:'SF Mono','Cascadia Code','Consolas',monospace;
-  }
-  .backpressure-bar.warning{background:rgba(255,68,102,0.12);border-color:rgba(255,68,102,0.35);animation:bpFlash .6s infinite alternate;}
-  @keyframes bpFlash{from{opacity:1}to{opacity:.5}}
-  .bp-label{color:var(--muted);}
-  .bp-buffered{color:var(--warn);font-weight:600;}
-  .bp-dropped{color:var(--danger);font-weight:600;}
-
-  /* 响应式 */
-  @media(max-width:540px){
-    canvas#preview{width:320px;height:160px;}
-    h1{font-size:1.3rem;letter-spacing:3px;}
-  }
+/* ====================================================================== */
+/*  Animations                                                             */
+/* ====================================================================== */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.pulse{animation:pulse 2s infinite}
 </style>
 </head>
 <body>
 
-<h1>BITSTREAM</h1>
+<!-- ====================================================================== -->
+<!--  Header                                                                 -->
+<!-- ====================================================================== -->
+<div class="header">
+  <div class="ascii">
+  &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9600;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600;&#9600; &#9608;&#9600; &#9608;&#9600;&#9600;
+  &#9608;&#9600;&#9604; &#9608;&#9600;&#9604;   &#9608;  &#9608;&#9600;&#9604; &#9608;&#9600;&#9604; &#9608;&#9600;&#9600; &#9608;  &#9608;&#9600;&#9604;
+  &#9608;&#9600;&#9600; &#9608;&#9600;&#9600;   &#9608;  &#9608;&#9600;&#9600; &#9608;&#9600;  &#9608;&#9600;&#9600; &#9608;&#9600; &#9608;&#9600;&#9600;
+  </div>
+  <h1>BitStream V2</h1>
+  <div class="ver">ESP8266 OLED Streaming Console</div>
+</div>
 
-<!-- ═══ 连接状态栏 ═══ -->
-<div class="card" id="statusCard">
-  <div class="card-title">连接状态</div>
-  <div class="status-row">
-    <span class="status-dot off" id="statusDot"></span>
-    <div class="status-info">
-      <div class="status-ip" id="statusIP">等待连接…</div>
-      <div class="status-meta" id="statusMeta"></div>
+<!-- ====================================================================== -->
+<!--  Connection Card                                                        -->
+<!-- ====================================================================== -->
+<div class="card" id="connCard">
+  <div class="card-header">
+    <span class="dot off pulse" id="connDot"></span>
+    <span class="card-title">&#9654; Connection</span>
+    <span class="status-badge off" id="connBadge">OFFLINE</span>
+    <span class="ping" id="pingDisplay"></span>
+  </div>
+  <div class="conn-row">
+    <input type="text" class="conn-input" id="ipInput"
+           placeholder="192.168.x.x" autocomplete="off" spellcheck="false">
+    <button class="btn" id="btnConnect">Connect</button>
+    <button class="btn danger" id="btnDisconnect" disabled>Disconnect</button>
+  </div>
+</div>
+
+<!-- ====================================================================== -->
+<!--  Media Card — Video + OLED Preview                                      -->
+<!-- ====================================================================== -->
+<div class="card" id="mediaCard">
+  <div class="card-header">
+    <span class="dot"></span>
+    <span class="card-title">&#9654; Stream</span>
+  </div>
+  <div class="media-grid">
+    <div>
+      <video id="videoPlayer" muted playsinline></video>
+      <div class="file-row">
+        <button class="btn btn-file" id="btnSelectFile">Select File</button>
+        <span class="file-name" id="fileName">No file selected</span>
+      </div>
+      <input type="file" id="fileInput" accept="video/*">
     </div>
-    <span class="ping-badge" id="pingBadge">-- ms</span>
+    <div class="preview-wrap">
+      <canvas id="previewCanvas" width="128" height="64"></canvas>
+      <span class="preview-label">OLED Preview</span>
+    </div>
   </div>
 </div>
 
-<!-- ═══ 视频播放中枢 ═══ -->
-<div class="card">
-  <div class="card-title">视频</div>
-  <video id="video" controls muted loop playsinline></video>
-  <div class="file-row">
-    <button class="btn btn-file" id="btnFile" onclick="fileInput.click()">选择文件</button>
-    <span class="file-name" id="fileLabel">未选择文件</span>
-    <input type="file" id="fileInput" accept="video/*" onchange="onFileSelected(event)">
+<!-- ====================================================================== -->
+<!--  Control Card                                                           -->
+<!-- ====================================================================== -->
+<div class="card" id="ctrlCard">
+  <div class="card-header">
+    <span class="dot"></span>
+    <span class="card-title">&#9654; Controls</span>
   </div>
-</div>
-
-<!-- ═══ 极客控制面板 ═══ -->
-<div class="card">
-  <div class="card-title">控制面板</div>
-
-  <div class="slider-group">
-    <div class="slider-label"><span>二值化阈值</span><span class="slider-val" id="thresholdVal">128</span></div>
-    <input type="range" id="thresholdSlider" min="0" max="255" value="128" oninput="onThresholdChange()">
+  <div class="ctrl-grid">
+    <div class="slider-group">
+      <div class="slider-row">
+        <span class="slider-label">Threshold</span>
+        <span class="slider-val" id="thresholdVal">128</span>
+      </div>
+      <input type="range" id="thresholdSlider" min="0" max="255" value="128" step="1">
+    </div>
+    <div class="slider-group">
+      <div class="slider-row">
+        <span class="slider-label">OLED Brightness</span>
+        <span class="slider-val" id="brightnessVal">255</span>
+      </div>
+      <input type="range" id="brightnessSlider" min="0" max="255" value="255" step="1">
+    </div>
+    <div class="slider-group">
+      <div class="slider-row">
+        <span class="slider-label">Speed</span>
+        <span class="slider-val" id="speedVal">1.0x</span>
+      </div>
+      <input type="range" id="speedSlider" min="0.5" max="2.0" value="1.0" step="0.1">
+    </div>
   </div>
-
-  <div class="fps-row">
-    <span class="fps-label">帧率</span>
-    <select id="fpsSelect" onchange="onFpsChange()">
-      <option value="10">10 fps</option>
-      <option value="15">15 fps</option>
-      <option value="20" selected>20 fps</option>
-      <option value="30">30 fps</option>
-    </select>
-  </div>
-  <div class="checkbox-row">
-    <label class="geek-check">
-      <input type="checkbox" id="invertCheck" onchange="onInvertChange()">
+  <div class="check-row" style="margin-top:14px">
+    <label class="check-item">
+      <input type="checkbox" id="checkGreenScreen">
       <span class="check-box"></span>
-      <span>反转颜色</span>
+      <span class="check-text">Green Screen</span>
     </label>
-    <label class="geek-check">
-      <input type="checkbox" id="greenCheck" onchange="onGreenChange()">
+    <label class="check-item">
+      <input type="checkbox" id="checkInvert">
       <span class="check-box"></span>
-      <span>过滤绿幕</span>
+      <span class="check-text">Invert Colors</span>
     </label>
-  </div>
-  <div class="preview-wrap">
-    <canvas id="preview" width="128" height="64"></canvas>
-  </div>
-
-  <div class="stream-stats">
-    <span>推流状态: <span id="streamState" style="color:var(--muted);">待机</span></span>
-    <span class="fps" id="fpsCounter"></span>
-  </div>
-
-  <!-- 背压监控栏 -->
-  <div class="backpressure-bar" id="bpBar">
-    <span class="bp-label">堆积字节</span>
-    <span class="bp-buffered" id="bpBuffered">0 B</span>
-    <span class="bp-label">丢帧</span>
-    <span class="bp-dropped" id="bpDropped">0</span>
   </div>
 </div>
 
-<canvas id="hiddenCanvas" width="128" height="64" style="display:none;"></canvas>
+<!-- ====================================================================== -->
+<!--  Footer                                                                 -->
+<!-- ====================================================================== -->
+<div class="footer">
+  <span class="accent">&#9608;</span> ESP8266 &middot; SSD1306 128&times;64 &middot; WebSocket &middot; I2C 800kHz <span class="accent">&#9608;</span>
+</div>
 
+<!-- ====================================================================== -->
+<!--  Hidden canvas for frame processing                                     -->
+<!-- ====================================================================== -->
+<canvas id="hiddenCanvas" width="128" height="64" style="display:none"></canvas>
+
+<!-- ====================================================================== -->
+<!--  JavaScript — ES6 Class Architecture                                    -->
+<!-- ====================================================================== -->
 <script>
-const $=id=>document.getElementById(id);
-const ipInputVal=()=>{const p=new URLSearchParams(window.location.search).get('ip');return p?('ws://'+p+':81/'):null;};
-const statusDot=$('statusDot'),statusIP=$('statusIP'),statusMeta=$('statusMeta'),pingBadge=$('pingBadge');
-const video=$('video'),fileInput=$('fileInput'),fileLabel=$('fileLabel');
-const thresholdSlider=$('thresholdSlider'),thresholdVal=$('thresholdVal'),fpsSelect=$('fpsSelect');
-const preview=$('preview'),hiddenCvs=$('hiddenCanvas'),streamState=$('streamState'),fpsCounter=$('fpsCounter');
-const bpBar=$('bpBar'),bpBuffered=$('bpBuffered'),bpDropped=$('bpDropped');
-const ctxHidden=hiddenCvs.getContext('2d',{willReadFrequently:true});
-const ctxPreview=preview.getContext('2d');
-const invertCheck=invertCheck,greenCheck=greenCheck;
-
-let ws=null,connected=false,streaming=false,seeking=false;
-let threshold=128,fpsTarget=20;
-let frameCnt=0,lastFrameTime=0,rafId=null;
-let fpsLastTime=0,fpsAccum=0;
-let invertColor=false,greenScreen=false;
-let droppedFrames=0;
-let pingStart=0,pingValue=-1,pingTimer=null;
-let currentVideoUrl=null,isEspReady=true,ackTimeout=null;
-
 /* ====================================================================== */
-/*  URL 参数自动连接                                                       */
+/*  BitStreamApp — 应用主类                                                */
 /* ====================================================================== */
-(function autoInit(){
-  const wsUrl=ipInputVal();
-  if(wsUrl){connect(wsUrl);}
-})();
+class BitStreamApp {
 
-function connect(wsUrl){
-  if(connected)disconnect();
-  const url=wsUrl||ipInputVal();
-  if(!url){setStatus(false,'未检测到设备 IP，请在 URL 后添加 ?ip=192.168.x.x');return;}
+  /* -- 构造函数：查询 DOM、初始化状态 --------------------------------- */
+  constructor() {
+    /* DOM 引用 */
+    this.ipInput         = document.getElementById('''ipInput''');
+    this.btnConnect      = document.getElementById('''btnConnect''');
+    this.btnDisconnect   = document.getElementById('''btnDisconnect''');
+    this.connDot         = document.getElementById('''connDot''');
+    this.connBadge       = document.getElementById('''connBadge''');
+    this.pingDisplay     = document.getElementById('''pingDisplay''');
+    this.videoPlayer     = document.getElementById('''videoPlayer''');
+    this.btnSelectFile   = document.getElementById('''btnSelectFile''');
+    this.fileInput       = document.getElementById('''fileInput''');
+    this.fileName        = document.getElementById('''fileName''');
+    this.previewCanvas   = document.getElementById('''previewCanvas''');
+    this.previewCtx      = this.previewCanvas.getContext('''2d'',{willReadFrequently:true});
+    this.hiddenCanvas    = document.getElementById('''hiddenCanvas''');
+    this.hiddenCtx       = this.hiddenCanvas.getContext('''2d'',{willReadFrequently:true});
+    this.thresholdSlider = document.getElementById('''thresholdSlider''');
+    this.thresholdVal    = document.getElementById('''thresholdVal''');
+    this.brightnessSlider= document.getElementById('''brightnessSlider''');
+    this.brightnessVal   = document.getElementById('''brightnessVal''');
+    this.speedSlider     = document.getElementById('''speedSlider''');
+    this.speedVal        = document.getElementById('''speedVal''');
+    this.checkGreenScreen= document.getElementById('''checkGreenScreen''');
+    this.checkInvert     = document.getElementById('''checkInvert''');
 
-  try{ws=new WebSocket(url);}catch(e){setStatus(false,'URL 格式无效');return;}
-  ws.binaryType='arraybuffer';
-  setStatus(false,'正在连接 '+url+' …');
+    /* 运行时状态 */
+    this.ws              = null;
+    this.currentVideoURL = null;
+    this.connected       = false;
+    this.pingInterval    = null;
+    this.pingStart       = 0;
 
-  ws.onopen=()=>{
-    connected=true;droppedFrames=0;setStatus(true,url);updateBackpressure();
-    startPing();
-  };
+    /* 控制参数 */
+    this.threshold       = 128;
+    this.hwBrightness    = 255;
+    this.speed           = 1.0;
+    this.greenScreen     = false;
+    this.invert          = false;
 
-  ws.onclose=()=>{
-    connected=false;if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-    stopPing();setStatus(false,'连接已关闭');updateBackpressure();
-  };
+    console.log('''[BitStreamApp] Constructor complete — DOM references resolved'');
+  }
 
-  ws.onerror=()=>{setStatus(false,'连接失败');};
+  /* ====================================================================== */
+  /*  init() — 应用入口：解析 URL → 绑定事件 → 设置初始状态                   */
+  /* ====================================================================== */
+  init() {
+    console.log('''[BitStreamApp] init() started''');
 
-  ws.onmessage=(e)=>{
-    if(typeof e.data==='string'){
-      if(e.data==='ACK'){
-        if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-        isEspReady=true;
+    /* 1. 从 URL 解析设备 IP */
+    this.parseURLParams();
+
+    /* 2. 绑定所有 UI 事件 */
+    this.bindConnectionEvents();
+    this.bindFileEvents();
+    this.bindControlEvents();
+
+    /* 3. 初始化 UI 状态 */
+    this.updateConnectionUI();
+    this.updateControlDisplay();
+
+    console.log('''[BitStreamApp] init() complete — ready for user interaction'');
+  }
+
+  /* ====================================================================== */
+  /*  parseURLParams() — 从 ?ip=xxx 自动填充 IP 输入框                       */
+  /* ====================================================================== */
+  parseURLParams() {
+    const params = new URLSearchParams(window.location.search);
+    const ip = params.get('''ip''');
+    if (ip) {
+      this.ipInput.value = ip;
+      console.log(`[BitStreamApp] URL param detected: ip=${ip}`);
+    } else {
+      console.log('''[BitStreamApp] No ?ip= param in URL'');
+    }
+  }
+
+  /* ====================================================================== */
+  /*  bindConnectionEvents() — 连接 / 断开按钮事件                           */
+  /* ====================================================================== */
+  bindConnectionEvents() {
+    this.btnConnect.addEventListener('''click'', () => {
+      const ip = this.ipInput.value.trim();
+      if (!ip) {
+        console.warn('''[BitStreamApp] Connect clicked but IP is empty'');
         return;
       }
-      if(e.data==='pong'){
-        pingValue=Date.now()-pingStart;
-        updatePingBadge();
+      console.log(`[BitStreamApp] Connecting to ws://${ip}:81 ...`);
+      this.connectWebSocket(ip);
+    });
+
+    this.btnDisconnect.addEventListener('''click'', () => {
+      console.log('''[BitStreamApp] Disconnect requested by user'');
+      this.disconnectWebSocket();
+    });
+
+    /* Enter 键快捷连接 */
+    this.ipInput.addEventListener('''keydown'', (e) => {
+      if (e.key === ''''Enter'''') {
+        console.log('''[BitStreamApp] Enter key pressed in IP input'');
+        this.btnConnect.click();
       }
+    });
+
+    console.log('''[BitStreamApp] Connection events bound: click, keydown(Enter)'');
+  }
+
+  /* ====================================================================== */
+  /*  connectWebSocket(ip) — 建立 WebSocket 连接                             */
+  /* ====================================================================== */
+  connectWebSocket(ip) {
+    /* 先断开已有连接 */
+    if (this.ws) {
+      console.log('''[BitStreamApp] Closing previous WebSocket before reconnect'');
+      this.disconnectWebSocket();
     }
-  };
-}
 
-function disconnect(){
-  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-  stopPing();
-  if(ws){ws.onclose=null;ws.close();ws=null;}
-  connected=false;setStatus(false,'已断开');updateBackpressure();
-}
+    const url = `ws://${ip}:81`;
+    console.log(`[BitStreamApp] WebSocket connecting: ${url}`);
 
-function setStatus(on,text){
-  statusDot.className='status-dot '+(on?'on':'off');
-  statusIP.textContent=text||'等待连接…';
-  statusMeta.textContent=on?'WebSocket 已建立 · 端口 81':'';
-}
+    try {
+      this.ws = new WebSocket(url);
+    } catch (err) {
+      console.error(`[BitStreamApp] WebSocket construction failed:`, err);
+      return;
+    }
 
-/* ====================================================================== */
-/*  Ping/延迟检测                                                          */
-/* ====================================================================== */
-function startPing(){
-  pingTimer=setInterval(()=>{
-    if(ws&&ws.readyState===WebSocket.OPEN){pingStart=Date.now();ws.send('ping');}
-  },2000);
-}
+    this.ws.onopen = () => {
+      console.log(`[BitStreamApp] WebSocket OPEN → ${url}`);
+      this.connected = true;
+      this.updateConnectionUI();
+      this.startPing();
+    };
 
-function stopPing(){
-  if(pingTimer){clearInterval(pingTimer);pingTimer=null;}
-  pingValue=-1;updatePingBadge();
-}
+    this.ws.onclose = (ev) => {
+      console.log(`[BitStreamApp] WebSocket CLOSE — code=${ev.code} reason="${ev.reason}"`);
+      this.connected = false;
+      this.updateConnectionUI();
+      this.stopPing();
+    };
 
-function updatePingBadge(){
-  if(pingValue<0){pingBadge.textContent='-- ms';pingBadge.className='ping-badge';statusMeta.textContent='WebSocket 已建立 · 端口 81';}
-  else{
-    pingBadge.textContent=pingValue+' ms';
-    pingBadge.className='ping-badge '+(pingValue<30?'good':pingValue<80?'warn':'bad');
-    statusMeta.textContent='WebSocket 已建立 · 端口 81 · 延迟 '+pingValue+'ms';
-  }
-}
+    this.ws.onerror = (ev) => {
+      console.error('''[BitStreamApp] WebSocket ERROR'', ev);
+    };
 
-/* ====================================================================== */
-/*  背压监控 UI                                                            */
-/* ====================================================================== */
-function updateBackpressure(){
-  const buf=ws&&ws.readyState===WebSocket.OPEN?ws.bufferedAmount:0;
-  bpBuffered.textContent=buf>1024?(buf/1024).toFixed(1)+' KB':buf+' B';
-  bpDropped.textContent=droppedFrames;
-  bpBar.className='backpressure-bar'+(buf>0?' warning':'');
-}
-
-/* ====================================================================== */
-/*  精准视频状态机                                                         */
-/* ====================================================================== */
-video.addEventListener('play',()=>{
-  if(connected&&!streaming&&video.src)startStream();
-});
-
-video.addEventListener('pause',()=>{
-  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-});
-
-video.addEventListener('ended',()=>{
-  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-});
-
-// 拖动进度条开始 → 立即冻结推流循环，防止无效帧堆积
-video.addEventListener('seeking',()=>{
-  if(!streaming)return;
-  seeking=true;
-  if(rafId){cancelAnimationFrame(rafId);rafId=null;}
-});
-
-// 拖动结束 → 强制捕获一帧同步 OLED，再恢复循环
-video.addEventListener('seeked',()=>{
-  if(!connected||!video.src)return;
-  seeking=false;
-  processAndSendFrame(true);          // 强制抽帧（忽略暂停状态）
-  if(streaming&&!video.paused){       // 视频正在播放才恢复循环
-    lastFrameTime=0;
-    rafId=requestAnimationFrame(tick);
-  }
-});
-
-/* ====================================================================== */
-/*  推流控制（rAF 替代 setInterval）                                       */
-/* ====================================================================== */
-function startStream(){
-  if(!connected||!ws||ws.readyState!==WebSocket.OPEN||!video.src)return;
-  streaming=true;seeking=false;
-  isEspReady=true;if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-  frameCnt=0;droppedFrames=0;lastFrameTime=0;
-  fpsLastTime=0;fpsAccum=0;
-  updateState();updateBackpressure();
-  rafId=requestAnimationFrame(tick);
-}
-
-function stopStream(){
-  streaming=false;seeking=false;isEspReady=true;if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-  if(rafId){cancelAnimationFrame(rafId);rafId=null;}
-  updateState();updateBackpressure();
-  fpsCounter.textContent='';
-}
-
-function updateState(){
-  streamState.textContent=streaming?'推流中':'待机';
-  streamState.style.color=streaming?'var(--accent)':'var(--muted)';
-}
-
-/* ====================================================================== */
-/*  requestAnimationFrame 主循环（时间戳精确控帧）                         */
-/* ====================================================================== */
-function tick(timestamp){
-  if(!streaming||seeking){rafId=null;return;}
-  if(!isEspReady)return;
-
-  // 每秒更新 FPS 显示
-  if(!fpsLastTime)fpsLastTime=timestamp;
-  fpsAccum++;
-  if(timestamp-fpsLastTime>=1000){
-    fpsCounter.textContent=fpsAccum+' fps';
-    fpsAccum=0;fpsLastTime=timestamp;
-  }
-
-  // 基于 fpsTarget 的帧率节流
-  const interval=1000/fpsTarget;
-  if(timestamp-lastFrameTime>=interval){
-    lastFrameTime=timestamp;
-    processAndSendFrame(false);
-  }
-
-  updateBackpressure();
-  rafId=requestAnimationFrame(tick);
-}
-
-/* ====================================================================== */
-/*  控制面板回调                                                           */
-/* ====================================================================== */
-function onThresholdChange(){
-  threshold=parseInt(thresholdSlider.value);thresholdVal.textContent=threshold;
-}
-
-
-function onInvertChange(){invertColor=invertCheck.checked;}
-function onGreenChange(){greenScreen=greenCheck.checked;}function onFpsChange(){
-  fpsTarget=parseInt(fpsSelect.value);
-  if(streaming){stopStream();startStream();}
-}
-
-/* ====================================================================== */
-/*  无缝切换视频                                                           */
-/* ====================================================================== */
-function onFileSelected(e){
-  const file=e.target.files[0];if(!file)return;
-
-  // 先停止推流，释放旧视频内存，再加载新视频
-  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-  if(currentVideoUrl){URL.revokeObjectURL(currentVideoUrl);currentVideoUrl=null;}
-
-  currentVideoUrl=URL.createObjectURL(file);
-  video.src=currentVideoUrl;
-  fileLabel.textContent=file.name;
-  video.load();
-}
-
-/* ====================================================================== */
-/*  高性能抽帧 → 灰度 → XBM → 背压控制 → WebSocket                        */
-/* ====================================================================== */
-function processAndSendFrame(skipPauseCheck){
-  if(video.ended||!video.src)return;
-  if(!skipPauseCheck&&video.paused)return;
-
-  ctxHidden.drawImage(video,0,0,128,64);
-  const d=ctxHidden.getImageData(0,0,128,64).data;
-  const xbm=new Uint8Array(1024);
-  const th=threshold;
-
-  const inv=invertColor,gs=greenScreen;
-  for(let y=0;y<64;y++){
-    const ro=y*128*4;
-    for(let bx=0;bx<16;bx++){
-      let bv=0;
-      for(let bit=0;bit<8;bit++){
-        const i=ro+(bx*8+bit)*4;
-        const r=d[i],g=d[i+1],b=d[i+2];
-        let bright;
-        if(gs&&g>r*1.3&&g>b*1.3){bright=0;}         // 绿幕 → 强制暗像素
-        else{bright=(0.299*r+0.587*g+0.114*b)>th?1:0;}
-        if(inv)bright^=1;                             // 反转颜色
-        if(bright)bv|=(1<<bit);
+    this.ws.onmessage = (ev) => {
+      /* 阶段五将在此处理 ACK / OK 等消息 */
+      if (typeof ev.data === ''''string'''') {
+        console.log(`[BitStreamApp] WS msg: "${ev.data}"`);
+        if (ev.data === ''''ACK'''') {
+          /* 锁步确认 — 阶段五实现 */
+        }
       }
-      xbm[y*16+bx]=bv;
+    };
+  }
+
+  /* ====================================================================== */
+  /*  disconnectWebSocket() — 完全断开 WebSocket                             */
+  /* ====================================================================== */
+  disconnectWebSocket() {
+    this.stopPing();
+
+    if (this.ws) {
+      console.log('''[BitStreamApp] Closing WebSocket...''');
+      /* 移除事件监听防止泄漏回调 */
+      this.ws.onopen    = null;
+      this.ws.onclose   = null;
+      this.ws.onerror   = null;
+      this.ws.onmessage = null;
+
+      if (this.ws.readyState === WebSocket.OPEN ||
+          this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close(1000, ''''User disconnect'''');
+      }
+      this.ws = null;
+    }
+
+    this.connected = false;
+    this.updateConnectionUI();
+    console.log('''[BitStreamApp] WebSocket fully disposed'');
+  }
+
+  /* ====================================================================== */
+  /*  startPing / stopPing — 心跳延迟测量                                    */
+  /* ====================================================================== */
+  startPing() {
+    this.pingDisplay.textContent = ''''...'''';
+    console.log('''[BitStreamApp] Ping measurement started'');
+  }
+
+  stopPing() {
+    this.pingDisplay.textContent = '''''''';
+    console.log('''[BitStreamApp] Ping measurement stopped'');
+  }
+
+  /* ====================================================================== */
+  /*  updateConnectionUI() — 同步连接状态到 DOM                              */
+  /* ====================================================================== */
+  updateConnectionUI() {
+    if (this.connected) {
+      this.connDot.classList.remove(''''off'''');
+      this.connBadge.classList.remove(''''off''''); this.connBadge.classList.add(''''on'''');
+      this.connBadge.textContent = ''''ONLINE'''';
+
+      this.btnConnect.disabled    = true;
+      this.btnDisconnect.disabled = false;
+      this.ipInput.disabled       = true;
+
+      console.log('''[BitStreamApp] UI → ONLINE state'');
+    } else {
+      this.connDot.classList.add(''''off'''');
+      this.connBadge.classList.remove(''''on''''); this.connBadge.classList.add(''''off'''');
+      this.connBadge.textContent = ''''OFFLINE'''';
+
+      this.btnConnect.disabled    = false;
+      this.btnDisconnect.disabled = true;
+      this.ipInput.disabled       = false;
+
+      console.log('''[BitStreamApp] UI → OFFLINE state'');
     }
   }
 
-  // OLED 点阵预览（始终实时渲染，不受背压丢帧影响）
-  const pi=ctxPreview.createImageData(128,64),pp=pi.data;
-  for(let y=0;y<64;y++){
-    for(let bx=0;bx<16;bx++){
-      const bv=xbm[y*16+bx];
-      for(let bit=0;bit<8;bit++){
-        const px=bx*8+bit,idx=(y*128+px)*4,v=(bv>>bit)&1?255:0;
-        pp[idx]=pp[idx+1]=pp[idx+2]=v;pp[idx+3]=255;
+  /* ====================================================================== */
+  /*  bindFileEvents() — 文件选择 + 防泄漏清理                                */
+  /* ====================================================================== */
+  bindFileEvents() {
+    this.btnSelectFile.addEventListener('''click'', () => {
+      console.log('''[BitStreamApp] File select dialog triggered'');
+      this.fileInput.click();
+    });
+
+    this.fileInput.addEventListener('''change'', (e) => {
+      const file = e.target.files[0];
+      if (!file) {
+        console.log('''[BitStreamApp] File selection cancelled'');
+        return;
       }
-    }
+
+      console.log(`[BitStreamApp] File selected: "${file.name}" (${(file.size/1024/1024).toFixed(1)} MB)`);
+
+      /* ---- 防泄漏：彻底清理旧视频资源 ---- */
+      this.cleanupVideoResources();
+
+      /* ---- 加载新视频 ---- */
+      this.currentVideoURL = URL.createObjectURL(file);
+      console.log(`[BitStreamApp] Blob URL created: ${this.currentVideoURL}`);
+
+      this.videoPlayer.src = this.currentVideoURL;
+      this.fileName.textContent = file.name;
+
+      this.videoPlayer.addEventListener(''''loadedmetadata''', () => {
+        console.log(`[BitStreamApp] Video metadata loaded: ${this.videoPlayer.videoWidth}x${this.videoPlayer.videoHeight}, ${this.videoPlayer.duration.toFixed(1)}s`);
+      }, { once: true });
+
+      this.videoPlayer.load();
+      console.log('''[BitStreamApp] Video load() called'');
+    });
+
+    console.log('''[BitStreamApp] File events bound: click → file dialog, change → cleanup + load'');
   }
-  ctxPreview.putImageData(pi,0,0);
 
-  // ── Ping-Pong 锁步：ESP 渲染完一帧才允许发下一帧 ──
-  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  /* ====================================================================== */
+  /*  cleanupVideoResources() — 彻底释放旧视频所有资源（防泄漏核心）           */
+  /* ====================================================================== */
+  cleanupVideoResources() {
+    console.log('''[BitStreamApp] cleanupVideoResources() — purging old video''');
 
-  ws.send(xbm.buffer);
-  frameCnt++;
-  isEspReady=false;
-  if(ackTimeout)clearTimeout(ackTimeout);
-  ackTimeout=setTimeout(()=>{isEspReady=true;},150);
+    /* 1. 暂停播放 */
+    if (this.videoPlayer && !this.videoPlayer.paused) {
+      this.videoPlayer.pause();
+      console.log('''[BitStreamApp] Video paused'');
+    }
+
+    /* 2. 清除视频源（释放解码器资源） */
+    if (this.videoPlayer) {
+      this.videoPlayer.removeAttribute(''''src'''');
+      this.videoPlayer.load();
+      console.log('''[BitStreamApp] Video src removed + load()'');
+    }
+
+    /* 3. 撤销 Blob URL（释放浏览器内存） */
+    if (this.currentVideoURL) {
+      URL.revokeObjectURL(this.currentVideoURL);
+      console.log(`[BitStreamApp] Blob URL revoked: ${this.currentVideoURL}`);
+      this.currentVideoURL = null;
+    }
+
+    /* 4. 清空预览 Canvas */
+    if (this.previewCtx) {
+      this.previewCtx.clearRect(0, 0, 128, 64);
+    }
+    if (this.hiddenCtx) {
+      this.hiddenCtx.clearRect(0, 0, 128, 64);
+    }
+
+    /* 5. 重置文件名显示 */
+    this.fileName.textContent = ''''No file selected'''';
+
+    /* 6. 清空 file input（允许重新选择同一文件） */
+    this.fileInput.value = '''''''';
+
+    console.log('''[BitStreamApp] Video resources fully purged'');
+  }
+
+  /* ====================================================================== */
+  /*  bindControlEvents() — 滑块 + 复选框事件绑定                             */
+  /* ====================================================================== */
+  bindControlEvents() {
+    /* -- 二值化阈值 -- */
+    this.thresholdSlider.addEventListener('''input'', () => {
+      this.threshold = parseInt(this.thresholdSlider.value);
+      this.thresholdVal.textContent = this.threshold;
+      console.log(`[BitStreamApp] Threshold → ${this.threshold}`);
+    });
+
+    /* -- OLED 亮度（发送 WebSocket 指令）-- */
+    this.brightnessSlider.addEventListener('''input'', () => {
+      this.hwBrightness = parseInt(this.brightnessSlider.value);
+      this.brightnessVal.textContent = this.hwBrightness;
+
+      /* 通过 WebSocket 发送亮度指令到 ESP8266 */
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        const cmd = `BRIGHTNESS:${this.hwBrightness}`;
+        this.ws.send(cmd);
+        console.log(`[BitStreamApp] WS sent: "${cmd}"`);
+      } else {
+        console.log(`[BitStreamApp] Brightness set locally (WS not connected): ${this.hwBrightness}`);
+      }
+    });
+
+    /* -- 播放倍速 -- */
+    this.speedSlider.addEventListener('''input'', () => {
+      this.speed = parseFloat(this.speedSlider.value);
+      this.speedVal.textContent = `${this.speed.toFixed(1)}x`;
+      this.videoPlayer.playbackRate = this.speed;
+      console.log(`[BitStreamApp] Speed → ${this.speed.toFixed(1)}x`);
+    });
+
+    /* -- 绿幕过滤 -- */
+    this.checkGreenScreen.addEventListener('''change'', () => {
+      this.greenScreen = this.checkGreenScreen.checked;
+      console.log(`[BitStreamApp] Green Screen → ${this.greenScreen}`);
+    });
+
+    /* -- 反色 -- */
+    this.checkInvert.addEventListener('''change'', () => {
+      this.invert = this.checkInvert.checked;
+      console.log(`[BitStreamApp] Invert → ${this.invert}`);
+    });
+
+    console.log('''[BitStreamApp] Control events bound: 3 sliders + 2 checkboxes'');
+  }
+
+  /* ====================================================================== */
+  /*  updateControlDisplay() — 初始化控件显示值                              */
+  /* ====================================================================== */
+  updateControlDisplay() {
+    this.thresholdVal.textContent    = this.threshold;
+    this.brightnessVal.textContent   = this.hwBrightness;
+    this.speedVal.textContent        = `${this.speed.toFixed(1)}x`;
+    console.log('''[BitStreamApp] Control displays synced to initial values'');
+  }
 }
 
 /* ====================================================================== */
-/*  页面卸载清理                                                           */
+/*  应用启动                                                                */
 /* ====================================================================== */
-window.addEventListener('beforeunload',()=>{
-  if(streaming)stopStream();if(ackTimeout){clearTimeout(ackTimeout);ackTimeout=null;}
-  stopPing();
-  if(ws){ws.onclose=null;ws.close();}
-  if(currentVideoUrl)URL.revokeObjectURL(currentVideoUrl);
+const app = new BitStreamApp();
+app.init();
+
+/* 页面卸载清理 */
+window.addEventListener(''''beforeunload'''', () => {
+  console.log('''[BitStreamApp] Page unloading — cleaning up...''');
+  app.disconnectWebSocket();
+  app.cleanupVideoResources();
+  console.log('''[BitStreamApp] Cleanup complete. Goodbye.'');
 });
+
+console.log('''[BitStreamApp] Application fully initialized'');
 </script>
+
 </body>
 </html>
