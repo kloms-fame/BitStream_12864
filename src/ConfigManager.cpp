@@ -170,8 +170,11 @@ ConfigManager::ConfigManager()
 /*  公有方法 — begin()                                                        */
 /* ========================================================================== */
 
-void ConfigManager::begin()
+void ConfigManager::begin(StatusCallback onStatus)
 {
+    // 保存状态回调（用于 OLED 实时反馈）
+    m_statusCallback = onStatus;
+
     Serial.println(F("\n========================================"));
     Serial.println(F("  BitStream V2 — ConfigManager 启动"));
     Serial.println(F("========================================"));
@@ -398,30 +401,79 @@ void ConfigManager::startAPMode()
     Serial.printf("[CFG] 请用手机连接此热点，浏览器将自动弹出配网页\n");
     Serial.printf("[CFG] 或手动访问: http://%s\n", AP_IP.toString().c_str());
 
-    // 2. 启动 DNS 劫持 — 将所有域名解析到 ESP 自身 IP
+    // 1.5. 注册 AP 客户端连接/断开事件 — 实时反馈到 OLED
+    {
+        m_onStationConnected = WiFi.onSoftAPModeStationConnected(
+            [this](const WiFiEventSoftAPModeStationConnected& evt) {
+                Serial.printf("[CFG] AP client connected: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    evt.mac[0],evt.mac[1],evt.mac[2],evt.mac[3],evt.mac[4],evt.mac[5]);
+                if (m_statusCallback) m_statusCallback("Client Connected!");
+            });
+        m_onStationDisconnected = WiFi.onSoftAPModeStationDisconnected(
+            [this](const WiFiEventSoftAPModeStationDisconnected& evt) {
+                Serial.printf("[CFG] AP client disconnected: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    evt.mac[0],evt.mac[1],evt.mac[2],evt.mac[3],evt.mac[4],evt.mac[5]);
+            });
+    }
+
+    //// 2. 启动 DNS 劫持 — 将所有域名解析到 ESP 自身 IP
     m_dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
     m_dnsServer.start(DNS_PORT, "*", AP_IP);
+    // 显式添加常见检测域名（部分平台对通配符 DNS 处理不佳）
+    {
+        static const char* domains[] = {
+            "www.msftconnecttest.com",   // Windows
+            "msftconnecttest.com",       // Windows (no www)
+            "captive.apple.com",         // Apple / iOS / macOS
+            "connectivitycheck.gstatic.com", // Android
+            "clients3.google.com",       // Android / Chrome
+            "detectportal.firefox.com",  // Firefox
+            "www.msftncsi.com",          // Windows NCSI
+        };
+        // DNS wildcard "*" already covers all domains
+    }
     Serial.println(F("[CFG] DNS 劫持已启动 (53 端口 → 192.168.4.1)"));
 
     // 3. 注册 HTTP 路由
     m_httpServer.on("/",      HTTP_GET,  [this]() { serveConfigPage(); });
     m_httpServer.on("/save",  HTTP_POST, [this]() { handleSaveConfig(); });
 
-    // 通配路由：覆盖所有 Captive Portal 检测 URL 及其他未知路径
+    //  层级 3: 平台专用检测 URL — 直接返回 200 OK 配网页（非 302）
+    //
+    //  Windows 检测端点
+    m_httpServer.on("/redirect",            HTTP_GET, [this]() { serveCaptivePage(); });
+    m_httpServer.on("/fwlink",              HTTP_GET, [this]() { serveCaptivePage(); });
+    m_httpServer.on("/ncsi.txt",            HTTP_GET, [this]() { serveNcsiOK(); });
+    m_httpServer.on("/connecttest.txt",     HTTP_GET, [this]() { serveNcsiOK(); });
+    //  Android 检测端点
+    m_httpServer.on("/generate_204",        HTTP_GET, [this]() { serve204NoContent(); });
+    //  Apple / iOS / macOS 检测端点
+    m_httpServer.on("/hotspot-detect.html",         HTTP_GET, [this]() { serveCaptivePage(); });
+    m_httpServer.on("/library/test/success.html",   HTTP_GET, [this]() { serveCaptivePage(); });
+    //  Firefox 检测端点
+    m_httpServer.on("/canonical.html",              HTTP_GET, [this]() { serveCaptivePage(); });
+    m_httpServer.on("/success.txt",                 HTTP_GET, [this]() { serveCaptivePage(); });
+    //  Chrome 检测端点
+    m_httpServer.on("/check_network_status.txt",    HTTP_GET, [this]() { serveCaptivePage(); });
+
+    //// 通配路由：覆盖所有 Captive Portal 检测 URL 及其他未知路径
     // Android:  /generate_204
     // Apple:    /hotspot-detect.html, /library/test/success.html
     // Windows:  /ncsi.txt, /connecttest.txt, /redirect, /fwlink
     m_httpServer.onNotFound([this]()
     {
         // 将一切未匹配请求重定向到配网页（302 触发浏览器弹出）
-        m_httpServer.sendHeader("Location", "http://192.168.4.1/", true);
-        m_httpServer.send(302, "text/plain", "");
+        m_httpServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        m_httpServer.send_P(200, "text/html; charset=utf-8", PAGE_CONFIG);
     });
 
     m_httpServer.begin();
     Serial.println(F("[CFG] Captive Portal HTTP 服务已启动 (80 端口)"));
 
     // 4. 记录启动时间用于超时检测
+    // OLED 状态反馈：通知主程序更新屏幕
+    if (m_statusCallback) { m_statusCallback("AP:OLED-BitStream"); }
+
     m_apStartTime = millis();
     m_mode        = Mode::AP_CONFIG;
 }
@@ -465,16 +517,28 @@ void ConfigManager::handleSaveConfig()
     ESP.restart();
 }
 
-void ConfigManager::handleCaptiveRequest()
+
+/* ========================================================================== */
+/*  私有方法 — Captive Portal 检测 URL 辅助处理器                               */
+/* ========================================================================== */
+
+void ConfigManager::serveCaptivePage()
 {
-    // 此方法当前未使用 — 所有请求由 onNotFound 和路由统一处理
-    // 保留作为未来扩展点（如添加设备信息 API）
+    m_httpServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    m_httpServer.send_P(200, "text/html; charset=utf-8", PAGE_CONFIG);
+}
+
+void ConfigManager::serveNcsiOK()
+{
+    m_httpServer.send(200, "text/plain", "Microsoft Connect Test");
+}
+
+void ConfigManager::serve204NoContent()
+{
+    m_httpServer.send(204, "text/plain", "");
 }
 
 /* ========================================================================== */
-/*  私有方法 — Station 已连接模式                                             */
-/* ========================================================================== */
-
 void ConfigManager::startStationMode()
 {
     Serial.println(F("[CFG] >>> 进入 Station 模式（HTTP 重定向）<<<"));
@@ -494,7 +558,7 @@ void ConfigManager::startStationMode()
         const String url = String(REDIRECT_BASE_URL) + "?ip="
                          + WiFi.localIP().toString();
         m_httpServer.sendHeader("Location", url, true);
-        m_httpServer.send(302, "text/plain", "");
+        m_httpServer.send_P(200, "text/html; charset=utf-8", PAGE_CONFIG);
     });
 
     // 其他所有路径也做 302 重定向
@@ -503,7 +567,7 @@ void ConfigManager::startStationMode()
         const String url = String(REDIRECT_BASE_URL) + "?ip="
                          + WiFi.localIP().toString();
         m_httpServer.sendHeader("Location", url, true);
-        m_httpServer.send(302, "text/plain", "");
+        m_httpServer.send_P(200, "text/html; charset=utf-8", PAGE_CONFIG);
     });
 
     m_httpServer.begin();

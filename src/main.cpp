@@ -54,7 +54,12 @@ void setup()
     display.showStatus("Booting...");
 
     /* ---- 2. 网络配网（内部阻塞最长 15s 等待 WiFi）-------------------- */
-    config.begin();
+    // 传入 StatusCallback：ConfigManager 在关键状态变化时回调 OLED
+    // 例如：WiFi 连接中 → "Connecting..."
+    //       AP 客户端连接 → "Client Connected!"
+    config.begin([](const char* msg) {
+        display.showStatus(msg);
+    });
 
     /* ---- 3. 分支：已连接 → 推流模式 / 未连接 → AP 配网模式 ----------- */
     if (config.isWiFiConnected())
