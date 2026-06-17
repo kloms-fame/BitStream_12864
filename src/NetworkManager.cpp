@@ -275,8 +275,9 @@ void NetworkManager::startWebSocket()
             case WStype_CONNECTED:
             {
                 const IPAddress remoteIP = m_webSocket.remoteIP(clientNum);
-                Serial.printf("[NET] 客户端 #%u 已连接 — IP: %s\n",
-                              clientNum, remoteIP.toString().c_str());
+                Serial.printf("[NET] 客户端 #%u 已连接 — IP: %s | 在线: %u\n",
+                              clientNum, remoteIP.toString().c_str(),
+                              m_webSocket.connectedClients());
                 break;
             }
 
@@ -285,7 +286,8 @@ void NetworkManager::startWebSocket()
             /* ---------------------------------------------------------- */
             case WStype_DISCONNECTED:
             {
-                Serial.printf("[NET] 客户端 #%u 已断开\n", clientNum);
+                Serial.printf("[NET] 客户端 #%u 已断开 | 剩余: %u\n",
+                              clientNum, m_webSocket.connectedClients());
                 break;
             }
 
@@ -305,8 +307,9 @@ void NetworkManager::startWebSocket()
                 else
                 {
                     Serial.printf("[NET] 客户端 #%u 异常 BIN 帧: "
-                                  "期望 %u 字节，实际 %u 字节\n",
-                                  clientNum, FRAME_SIZE, length);
+                                  "期望 %u 字节，实际 %u 字节 | 首字节: 0x%02X\n",
+                                  clientNum, FRAME_SIZE, length,
+                                  length > 0 ? payload[0] : 0);
                 }
                 break;
             }
@@ -332,8 +335,8 @@ void NetworkManager::startWebSocket()
                 }
                 else
                 {
-                    Serial.printf("[NET] 客户端 #%u 未知指令: \"%s\"\n",
-                                  clientNum, text);
+                    Serial.printf("[NET] 客户端 #%u 未知指令: \"%s\" (len=%u)\n",
+                                  clientNum, text, length);
                 }
                 break;
             }

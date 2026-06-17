@@ -495,12 +495,12 @@ class BitStreamApp {
       this.connected = true; this.updateConnectionUI();
     };
     this.ws.onclose = (ev) => {
+      console.log("[BitStreamApp] WS onclose | code=" + ev.code + " reason=" + ev.reason + " wasClean=" + ev.wasClean);
       this.connected = false;
-      if (this.streaming) this.stopStream();
       this.updateConnectionUI();
     };
     this.ws.onerror = (err) => {
-      console.error("[BitStreamApp] WS Error:", err);
+      console.error("[BitStreamApp] WS onerror | readyState=" + this.ws.readyState + " | protocol=" + window.location.protocol + " | url=" + url);
       if (window.location.protocol === "https:") {
         if (!this.hasAlertedHTTPS) {
           this.hasAlertedHTTPS = true;
@@ -521,6 +521,18 @@ class BitStreamApp {
     };
   }
 
+    // 死线诊断: 3秒后仍未连接 输出诊断信息
+    const wsRef = this.ws;
+    const wsUrl = url;
+    setTimeout(() => {
+      if (wsRef && wsRef.readyState !== WebSocket.OPEN && !this.connected) {
+        const states = ["CONNECTING","OPEN","CLOSING","CLOSED"];
+        console.warn("[BitStreamApp] 3s死线: readyState=" + wsRef.readyState + "(" + (states[wsRef.readyState]||"?") + ") | protocol=" + window.location.protocol + " | url=" + wsUrl);
+        if (window.location.protocol === "https:" && wsRef.readyState === WebSocket.CLOSED) {
+          console.warn("[BitStreamApp] HTTPS环境: ws:// 连接大概率被 Mixed Content 拦截");
+        }
+      }
+    }, 3000);
   disconnectWebSocket() {
     if (this.streaming) this.stopStream();
     if (this.ws) {
@@ -561,14 +573,15 @@ class BitStreamApp {
       this.fileName.textContent = file.name;
       this.videoPlayer.load();
     });
-    this.videoPlayer.addEventListener("seeking", () => { this.seeking = true; });
+    this.videoPlayer.addEventListener("seeking", () => { console.log("[BitStreamApp] seeking"); this.seeking = true; });
     this.videoPlayer.addEventListener("seeked", () => {
+      console.log("[BitStreamApp] seeked -> ct=" + this.videoPlayer.currentTime.toFixed(2));
       this.seeking = false;
       this.justSeeked = true;
       this.lastVideoTime = -1;
     });
-      this.videoPlayer.addEventListener("play", () => { this.videoPlayer.playbackRate = this.speed; });
-      this.videoPlayer.addEventListener("ratechange", () => { if (this.videoPlayer.playbackRate !== this.speed) this.videoPlayer.playbackRate = this.speed; });
+      this.videoPlayer.addEventListener("play", () => { console.log("[BitStreamApp] play \u2192 \u9501\u5b9a\u500d\u901f " + this.speed.toFixed(1) + "x"); this.videoPlayer.playbackRate = this.speed; });
+      this.videoPlayer.addEventListener("ratechange", () => { const rate = this.videoPlayer.playbackRate; if (rate !== this.speed) { console.log("[BitStreamApp] ratechange: " + this.speed.toFixed(1) + "x \u2192 " + rate.toFixed(1) + "x (\u539f\u751f\u63a7\u4ef6)"); this.speed = rate; this.speedSlider.value = rate; this.speedVal.textContent = rate.toFixed(1) + "x"; } });
     this.videoPlayer.addEventListener("ended", () => {
       if (this.streaming) this.stopStream();
     });
@@ -692,6 +705,11 @@ class BitStreamApp {
 
     const ct = this.videoPlayer.currentTime;
     if (ct === this.lastVideoTime && !this.justSeeked) return;
+
+    // 每60帧输出诊断
+    if (this.frameSentCount % 60 === 0) {
+      console.log("[Tick] frame#" + this.frameSentCount + " ct=" + ct.toFixed(2) + " speed=" + this.speed.toFixed(1) + " paused=" + this.videoPlayer.paused);
+    }
 
     this.fpsAccum++;
     if (!this.fpsLastTime) this.fpsLastTime = timestamp;

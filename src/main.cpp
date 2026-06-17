@@ -44,12 +44,19 @@ void setup()
     /* ---- 0. 串口 ------------------------------------------------------ */
     Serial.begin(115200);
     delay(300);
+    Serial.println(F("\n============================================"));
+    Serial.println(F("  BitStream V2 - ESP8266 OLED Streamer      "));
+    Serial.println(F("============================================"));
+    Serial.printf ("[MAIN] 启动时间: %lu ms | 复位原因: %s\n",
+                   millis(), ESP.getResetReason().c_str());
 
     /* ---- 1. 显示内核最先启动 ------------------------------------------ */
+    Serial.println(F("[MAIN] Phase 1/4: 显示内核初始化"));
     display.begin();
     display.showStatus("Booting...");
 
     /* ---- 2. 网络内核启动（内部阻塞最多 45s STA 重试 / 直接进入 AP）--- */
+    Serial.println(F("[MAIN] Phase 2/4: 网络内核启动"));
     network.begin(
         [](uint8_t *payload, size_t /*length*/) {
             display.renderFrame(payload);
@@ -80,9 +87,11 @@ void setup()
         });
 
     /* ---- 4. Web 服务启动（根据 network 的 AP/STA 状态动态配置路由）--- */
+    Serial.println(F("[MAIN] Phase 3/4: Web服务启动"));
     webServer.begin();
 
     /* ---- 5. OLED 显示当前状态 ---------------------------------------- */
+    Serial.println(F("[MAIN] Phase 4/4: 启动完成，进入主循环"));
     if (NetworkManager::isAPMode())
     {
         display.showStatus("AP:OLED-BitStream");
@@ -109,6 +118,17 @@ void loop()
 {
     network.loop();   // WebSocket 帧接收 + 指令解析 + ACK 锁步
     webServer.loop(); // HTTP 路由 + DNS 劫持
+
+    /* ---- 每30秒输出系统心跳 ------------------------------------------ */
+    static uint32_t s_lastBeat = 0;
+    const uint32_t now = millis();
+    if (now - s_lastBeat >= 30000) {
+        s_lastBeat = now;
+        Serial.printf("[MAIN] 心跳 | 运行: %lu s | 堆: %u B | 模式: %s | WS客户端: %u\n",
+                      now / 1000, ESP.getFreeHeap(),
+                      NetworkManager::isAPMode() ? "AP" : "STA",
+                      network.getClientCount());
+    }
 
     /* ── 防卡死：确保 ESP8266 WiFi 射频栈能及时处理 TCP ACK ──────────
      *   ESP8266 是单核芯片，WiFi 协议栈与用户代码共享 CPU。

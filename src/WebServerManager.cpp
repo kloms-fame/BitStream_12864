@@ -85,8 +85,9 @@ void WebServerManager::begin()
 
     // 404 兜底 — 打印被拦截的原始 URI 后 302 重定向
     m_httpServer.onNotFound([this]() {
-        Serial.printf("[WEB] 拦截未知请求: %s → 重定向至 /\n",
-                      m_httpServer.uri().c_str());
+        Serial.printf("[WEB] 拦截未知请求: %s | 客户端: %s\n",
+                      m_httpServer.uri().c_str(),
+                      m_httpServer.client().remoteIP().toString().c_str());
         redirectToRoot();
     });
 
@@ -103,6 +104,12 @@ void WebServerManager::loop()
 {
     m_dnsServer.processNextRequest();
     m_httpServer.handleClient();
+
+    // DNS 查询计数（每100次打印）
+    static uint32_t s_dnsCount = 0;
+    if (++s_dnsCount % 100 == 0) {
+        Serial.printf("[WEB] DNS 已处理 %u 次查询\n", s_dnsCount);
+    }
 }
 
 /* ========================================================================== */
@@ -111,7 +118,9 @@ void WebServerManager::loop()
 
 void WebServerManager::serveRoot()
 {
-    Serial.printf("[WEB] 命中路由: %s\n", m_httpServer.uri().c_str());
+    Serial.printf("[WEB] 命中路由: %s | 客户端: %s\n",
+                  m_httpServer.uri().c_str(),
+                  m_httpServer.client().remoteIP().toString().c_str());
 
     if (NetworkManager::isAPMode())
     {
@@ -134,7 +143,9 @@ void WebServerManager::serveRoot()
 
 void WebServerManager::handleSetWiFi()
 {
-    Serial.printf("[WEB] 命中路由: %s\n", m_httpServer.uri().c_str());
+    Serial.printf("[WEB] 命中路由: %s | 客户端: %s\n",
+                  m_httpServer.uri().c_str(),
+                  m_httpServer.client().remoteIP().toString().c_str());
 
     const String ssid = m_httpServer.arg("ssid");
     const String pass = m_httpServer.arg("pwd");
@@ -156,7 +167,9 @@ void WebServerManager::handleSetWiFi()
 
 void WebServerManager::serveOfflinePage()
 {
-    Serial.printf("[WEB] 命中路由: %s\n", m_httpServer.uri().c_str());
+    Serial.printf("[WEB] 命中路由: %s → 直出 /offline.html | 客户端: %s\n",
+                  m_httpServer.uri().c_str(),
+                  m_httpServer.client().remoteIP().toString().c_str());
 
     if (!LittleFS.exists("/offline.html"))
     {
@@ -182,8 +195,20 @@ void WebServerManager::serveOfflinePage()
 
 void WebServerManager::redirectToRoot()
 {
-    Serial.printf("[WEB] 命中路由: %s → 302 http://192.168.4.1/\n", m_httpServer.uri().c_str());
+    const String uri = m_httpServer.uri();
+    const String clientIP = m_httpServer.client().remoteIP().toString();
+    Serial.printf("[WEB] 命中路由: %s | 客户端: %s", uri.c_str(), clientIP.c_str());
 
-    m_httpServer.sendHeader("Location", "http://192.168.4.1/", true);
-    m_httpServer.send(302, "text/plain", "");
+    // AP 模式：直出离线页面，避免 302 被代理软件拦截
+    if (NetworkManager::isAPMode())
+    {
+        Serial.println(F(" → 直出 offline.html (防代理拦截)"));
+        serveOfflinePage();
+    }
+    else
+    {
+        Serial.println(F(" → 302 http://192.168.4.1/"));
+        m_httpServer.sendHeader("Location", "http://192.168.4.1/", true);
+        m_httpServer.send(302, "text/plain", "");
+    }
 }
