@@ -314,7 +314,7 @@ input[type=range]::-moz-range-thumb{
     <span class="fps-display" id="fpsDisplay">0 fps</span></div>
   <div class="media-grid">
     <div>
-      <video id="videoPlayer" muted playsinline></video>
+      <video id="videoPlayer" controls playsinline></video>
       <div class="file-row">
         <button class="btn btn-file" id="btnSelectFile">Select File</button>
         <span class="file-name" id="fileName">No file selected</span>
@@ -468,7 +468,7 @@ class BitStreamApp {
   parseURLParams() {
     const p = new URLSearchParams(window.location.search);
     const ip = p.get("ip");
-    if (ip) { this.ipInput.value = ip; console.log("[BitStreamApp] URL ip=" + ip); }
+    if (ip) { this.ipInput.value = ip; console.log("[BitStreamApp] URL ip=" + ip); setTimeout(() => this.btnConnect.click(), 300); }
   }
 
   bindConnectionEvents() {
@@ -551,7 +551,6 @@ class BitStreamApp {
       this.seeking = false;
       this.justSeeked = true;
       this.lastVideoTime = -1;
-      this.processAndSendFrame();
     });
     this.videoPlayer.addEventListener("ended", () => {
       if (this.streaming) this.stopStream();

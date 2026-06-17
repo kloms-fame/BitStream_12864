@@ -182,7 +182,7 @@ canvas{
 <!-- ================================================================== -->
 <!--  隐藏元素                                                             -->
 <!-- ================================================================== -->
-<video id="video" class="hidden" muted loop playsinline></video>
+<video id="video" controls playsinline style="width:100%; border:1px solid var(--border); border-radius:4px; margin-bottom:8px; display:none;"></video>
 <canvas id="hiddenCanvas" class="hidden" width="128" height="64"></canvas>
 
 <!-- ================================================================== -->
@@ -219,7 +219,7 @@ const hiddenCtx   = hiddenCvs.getContext('2d', {willReadFrequently:true});
 let ws         = null;
 let connected  = false;
 let streaming  = false;
-let isEspReady = true;
+let isEspReady = true; let seeking = false;
 let greenScreen= false;
 let invert     = false;
 let threshold  = 128;
@@ -315,8 +315,7 @@ fileInput.addEventListener('change', function() {
   if (!f) return;
   const url = URL.createObjectURL(f);
   video.src = url;
-  video.load();
-  updateStreamButton();
+  video.style.display = "block"; video.load(); updateStreamButton();
 });
 
 /* ============================== STREAM CONTROL ====================== */
@@ -372,8 +371,7 @@ function stopStream() {
 }
 
 /* ============================== TICK ================================ */
-function tick(timestamp) {
-  if (!streaming || !isEspReady) return;
+function tick(timestamp) { if (seeking) return; if (!streaming || !isEspReady) return;
 
   // 跳过重复帧（播放器未推进）
   const ct = video.currentTime;
@@ -464,6 +462,9 @@ function processAndSend() {
     ackTimeoutId = null;
   }, 200);
 }
+
+video.addEventListener('seeking', () => { seeking = true; });
+video.addEventListener('seeked', () => { seeking = false; lastVideoTime = -1; });
 
 /* ============================== INIT ================================ */
 connectWS();
