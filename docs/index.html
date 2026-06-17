@@ -496,7 +496,12 @@ class BitStreamApp {
       if (this.streaming) this.stopStream();
       this.updateConnectionUI();
     };
-    this.ws.onerror = () => {};
+    this.ws.onerror = (err) => {
+      console.error("[BitStreamApp] WS Error:", err);
+      if (window.location.protocol === "https:") {
+        alert("\u26a0\ufe0f \u5b89\u5168\u62e6\u622a\u8b66\u544a\n\nGitHub Pages (HTTPS) \u65e0\u6cd5\u76f4\u63a5\u8fde\u63a5\u5355\u7247\u673a\u5c40\u57df\u7f51 (WS)\u3002\n\n\u89e3\u51b3\u65b9\u6cd5\uff1a\n\u8bf7\u70b9\u51fb\u6d4f\u89c8\u5668\u5730\u5740\u680f\u5de6\u4fa7\u7684\u3010\u9501\u56fe\u6807/\u914d\u7f6e\u56fe\u6807\u3011 -> \u8fdb\u5165\u3010\u7f51\u7ad9\u8bbe\u7f6e\u3011 -> \u627e\u5230\u3010\u4e0d\u5b89\u5168\u5185\u5bb9 (Insecure Content)\u3011 -> \u9009\u62e9\u3010\u5141\u8bb8\u3011\uff0c\u7136\u540e\u5237\u65b0\u7f51\u9875\u5373\u53ef\u79d2\u8fde\uff01");
+      }
+    };
     this.ws.onmessage = (ev) => {
       if (typeof ev.data === "string" && ev.data === "ACK") {
         this.isEspReady = true;
@@ -550,6 +555,8 @@ class BitStreamApp {
       this.seeking = false; this.justSeeked = true;
       this.lastVideoTime = -1;
     });
+      this.videoPlayer.addEventListener("play", () => { this.videoPlayer.playbackRate = this.speed; });
+
     this.videoPlayer.addEventListener("ended", () => {
       if (this.streaming) this.stopStream();
     });
@@ -670,7 +677,7 @@ class BitStreamApp {
     if (!this.isEspReady) return;
 
     const ct = this.videoPlayer.currentTime;
-    if (ct === this.lastVideoTime && !this.justSeeked && !this.videoPlayer.paused) return;
+    if (ct === this.lastVideoTime && !this.justSeeked) return;
 
     this.fpsAccum++;
     if (!this.fpsLastTime) this.fpsLastTime = timestamp;

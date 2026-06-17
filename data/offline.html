@@ -219,7 +219,7 @@ const hiddenCtx   = hiddenCvs.getContext('2d', {willReadFrequently:true});
 let ws         = null;
 let connected  = false;
 let streaming  = false;
-let isEspReady = true; let seeking = false;
+let isEspReady = true; let seeking = false; let justSeeked = false;
 let greenScreen= false;
 let invert     = false;
 let threshold  = 128;
@@ -375,7 +375,7 @@ function tick(timestamp) { if (seeking) return; if (!streaming || !isEspReady) r
 
   // 跳过重复帧（播放器未推进）
   const ct = video.currentTime;
-  if (ct === lastVideoTime && !video.paused) return;
+  if (ct === lastVideoTime && !justSeeked) return;
 
   fpsAccum++;
   if (!fpsLastTime) fpsLastTime = timestamp;
@@ -452,7 +452,7 @@ function processAndSend() {
 
   /* Step 5: Lock + 200ms deadlock timeout */
   isEspReady = false;
-  lastVideoTime = video.currentTime;
+  lastVideoTime = video.currentTime; justSeeked = false;
   if (ackTimeoutId) clearTimeout(ackTimeoutId);
   ackTimeoutId = setTimeout(function() {
     if (!isEspReady) {
@@ -464,7 +464,7 @@ function processAndSend() {
 }
 
 video.addEventListener('seeking', () => { seeking = true; });
-video.addEventListener('seeked', () => { seeking = false; lastVideoTime = -1; });
+video.addEventListener('seeked', () => { seeking = false; justSeeked = true; lastVideoTime = -1; });
 
 /* ============================== INIT ================================ */
 connectWS();

@@ -183,6 +183,6 @@ void WebServerManager::redirectToRoot()
 {
     Serial.printf("[WEB] 命中路由: %s\n", m_httpServer.uri().c_str());
 
-    m_httpServer.sendHeader("Location", "/", true);
+    m_httpServer.sendHeader("Location", "http://192.168.4.1/", true);
     m_httpServer.send(302, "text/plain", "");
 }
