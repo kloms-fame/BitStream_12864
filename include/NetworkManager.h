@@ -2,7 +2,7 @@
  * @file    NetworkManager.h
  * @brief   V2 网络内核 — AP/STA 双状态机 + WebSocket 流媒体 + 凭据持久化
  *
- * @details 本模块是 V2 架构唯一的"网络层"，彻底替代旧版 ConfigManager +
+ * @details 本模块是 V2 架构唯一的"网络层"，统一管理 WiFi STA/AP、WebSocket 推流、凭据持久化
  *          WebServerManager 的冗余设计，实现高内聚低耦合：
  *
  *          启动序列：

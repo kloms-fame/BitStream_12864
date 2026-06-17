@@ -1,21 +1,23 @@
 /**
  * @file    WebServerManager.cpp
- * @brief   WebServerManager — DNS 劫持 + HTTP 动态路由 + Captive Portal
+ * @brief   WebServerManager — 静态资源本地化 + DNS 劫持 + Captive Portal
  *
- * @details 全链路日志覆盖：每条路由命中均通过 Serial 输出。
- *          Captive Portal 策略：所有检测端点一律 302 重定向至 /，
- *          绝不返回 200/204 误让设备以为有外网。
+ * @details AP 模式：DNS 劫持 + Captive Portal 精准拦截
+ *          STA 模式：仅提供 HTTP 服务
+ *          统一路由：GET / 直接从 LittleFS 返回 index.html（或 index.html.gz），
+ *          彻底摒弃 302 重定向至 GitHub Pages 的旧方案，
+ *          消除 HTTPS→ws:// Mixed Content 阻断问题。
  */
 
 #include "WebServerManager.h"
 #include "NetworkManager.h"
-#include <ESP8266WiFi.h>
 
 /* ========================================================================== */
-/*  常量                                                                      */
+/*  常量 — 前端控制台路径（优先 .gz 压缩版以节省带宽）                          */
 /* ========================================================================== */
 
-static const char* REDIRECT_BASE_URL = "https://kloms-fame.github.io/BitStream_12864/";
+static const char* CONSOLE_PAGE_GZ = "/index.html.gz";
+static const char* CONSOLE_PAGE    = "/index.html";
 
 /* ========================================================================== */
 /*  构造函数                                                                  */
@@ -43,15 +45,16 @@ void WebServerManager::begin()
 
     /* ---- 2. HTTP 路由注册 ------------------------------------------------ */
 
-    // 根路由 — 模式感知分发 (AP → 离线页 / STA → 302)
-    m_httpServer.on("/", HTTP_GET, [this]() { serveRoot(); });
+    // 根路由 — 统一从 LittleFS 返回本地控制台页面
+    // （AP 和 STA 模式均走此路由，彻底废弃 302 重定向）
+    m_httpServer.on("/", HTTP_GET, [this]() { serveConsolePage(); });
 
-    // 配网 API
+    // 配网 API（AP 模式下使用）
     m_httpServer.on("/api/setwifi", HTTP_POST,
         [this]() { handleSetWiFi(); });
 
     // ── Captive Portal 检测端点 ───────────────────────────────────────
-    // 策略：全部 302 重定向至 /，强制唤起门户登录页
+    // 策略：全部返回配网页内容，让设备浏览器弹出强制门户
 
     // Android
     m_httpServer.on("/generate_204", HTTP_GET,
@@ -69,7 +72,7 @@ void WebServerManager::begin()
     m_httpServer.on("/success.txt", HTTP_GET,
         [this]() { redirectToRoot(); });
 
-    // Windows (ncsi/connecttest — 必须 302 不能 200，否则 Windows 误判有外网)
+    // Windows
     m_httpServer.on("/ncsi.txt", HTTP_GET,
         [this]() { redirectToRoot(); });
     m_httpServer.on("/connecttest.txt", HTTP_GET,
@@ -83,7 +86,7 @@ void WebServerManager::begin()
     m_httpServer.on("/check_network_status.txt", HTTP_GET,
         [this]() { redirectToRoot(); });
 
-    // 404 兜底 — 打印被拦截的原始 URI 后 302 重定向
+    // 404 兜底 — 打印被拦截的原始 URI 后返回首页
     m_httpServer.onNotFound([this]() {
         Serial.printf("[WEB] 拦截未知请求: %s | 客户端: %s\n",
                       m_httpServer.uri().c_str(),
@@ -93,7 +96,7 @@ void WebServerManager::begin()
 
     /* ---- 3. 启动 HTTP 服务 ---------------------------------------------- */
     m_httpServer.begin();
-    Serial.printf("[WEB] HTTP 服务已启动 (端口 %u)\n", HTTP_PORT);
+    Serial.printf("[WEB] HTTP 服务已启动 (端口 %u) | 静态页面直出模式\n", HTTP_PORT);
 }
 
 /* ========================================================================== */
@@ -107,37 +110,48 @@ void WebServerManager::loop()
     // DNS 劫持仅在 AP 模式有效，STA 模式直接跳过
     if (NetworkManager::isAPMode()) {
         m_dnsServer.processNextRequest();
-
-        static uint32_t s_dnsCount = 0;
-        if (++s_dnsCount % 100 == 0) {
-            Serial.printf("[WEB] DNS 已处理 %u 次查询\n", s_dnsCount);
-        }
+        // 注意：已移除高频 DNS 刷屏日志，避免占用单片机串口资源
     }
 }
 
 /* ========================================================================== */
-/*  路由处理器 — serveRoot()                                                   */
+/*  路由处理器 — serveConsolePage()                                            */
+/*  @brief 统一控制台页面入口 — 优先返回 .gz 压缩版，回退至 .html               */
 /* ========================================================================== */
 
-void WebServerManager::serveRoot()
+void WebServerManager::serveConsolePage()
 {
-    Serial.printf("[WEB] 命中路由: %s | 客户端: %s\n",
+    Serial.printf("[WEB] 命中路由: %s → 直出控制台 | 客户端: %s\n",
                   m_httpServer.uri().c_str(),
                   m_httpServer.client().remoteIP().toString().c_str());
 
-    if (NetworkManager::isAPMode())
+    // 优先尝试 gzip 压缩版本（节省带宽，ESP8266 CPU 无需实时压缩）
+    if (LittleFS.exists(CONSOLE_PAGE_GZ))
     {
-        serveOfflinePage();
+        File f = LittleFS.open(CONSOLE_PAGE_GZ, "r");
+        if (f)
+        {
+            m_httpServer.streamFile(f, "text/html; charset=utf-8");
+            f.close();
+            return;
+        }
     }
-    else
-    {
-        const String url = String(REDIRECT_BASE_URL)
-                         + "?ip=" + WiFi.localIP().toString();
 
-        Serial.printf("[WEB] STA 302 → %s\n", url.c_str());
-        m_httpServer.sendHeader("Location", url, true);
-        m_httpServer.send(302, "text/plain", "");
+    // 回退：未压缩版本
+    if (LittleFS.exists(CONSOLE_PAGE))
+    {
+        File f = LittleFS.open(CONSOLE_PAGE, "r");
+        if (f)
+        {
+            m_httpServer.streamFile(f, "text/html; charset=utf-8");
+            f.close();
+            return;
+        }
     }
+
+    // 最终兜底：文件不存在
+    Serial.println(F("[WEB] 控制台页面文件不存在! 请上传 index.html 或 index.html.gz 至 data/"));
+    m_httpServer.send(500, "text/plain", "Console page not found");
 }
 
 /* ========================================================================== */
@@ -165,53 +179,17 @@ void WebServerManager::handleSetWiFi()
 }
 
 /* ========================================================================== */
-/*  路由处理器 — serveOfflinePage()                                            */
-/* ========================================================================== */
-
-void WebServerManager::serveOfflinePage()
-{
-    Serial.printf("[WEB] 命中路由: %s → 直出 /offline.html | 客户端: %s\n",
-                  m_httpServer.uri().c_str(),
-                  m_httpServer.client().remoteIP().toString().c_str());
-
-    if (!LittleFS.exists("/offline.html"))
-    {
-        Serial.println(F("[WEB] /offline.html 不存在!"));
-        m_httpServer.send(500, "text/plain", "offline.html not found");
-        return;
-    }
-
-    File f = LittleFS.open("/offline.html", "r");
-    if (!f)
-    {
-        m_httpServer.send(500, "text/plain", "Cannot open offline.html");
-        return;
-    }
-
-    m_httpServer.streamFile(f, "text/html; charset=utf-8");
-    f.close();
-}
-
-/* ========================================================================== */
 /*  路由处理器 — redirectToRoot()                                              */
+/*  @brief 302 重定向至 /，用于 Captive Portal 检测端点                         */
 /* ========================================================================== */
 
 void WebServerManager::redirectToRoot()
 {
     const String uri = m_httpServer.uri();
     const String clientIP = m_httpServer.client().remoteIP().toString();
-    Serial.printf("[WEB] 命中路由: %s | 客户端: %s", uri.c_str(), clientIP.c_str());
+    Serial.printf("[WEB] 命中路由: %s | 客户端: %s → 302 /\n",
+                  uri.c_str(), clientIP.c_str());
 
-    // AP 模式：直出离线页面，避免 302 被代理软件拦截
-    if (NetworkManager::isAPMode())
-    {
-        Serial.println(F(" → 直出 offline.html (防代理拦截)"));
-        serveOfflinePage();
-    }
-    else
-    {
-        Serial.println(F(" → 302 http://192.168.4.1/"));
-        m_httpServer.sendHeader("Location", "http://192.168.4.1/", true);
-        m_httpServer.send(302, "text/plain", "");
-    }
+    m_httpServer.sendHeader("Location", "/", true);
+    m_httpServer.send(302, "text/plain", "");
 }
