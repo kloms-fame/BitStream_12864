@@ -102,13 +102,16 @@ void WebServerManager::begin()
 
 void WebServerManager::loop()
 {
-    m_dnsServer.processNextRequest();
     m_httpServer.handleClient();
 
-    // DNS 查询计数（每100次打印）
-    static uint32_t s_dnsCount = 0;
-    if (++s_dnsCount % 100 == 0) {
-        Serial.printf("[WEB] DNS 已处理 %u 次查询\n", s_dnsCount);
+    // DNS 劫持仅在 AP 模式有效，STA 模式直接跳过
+    if (NetworkManager::isAPMode()) {
+        m_dnsServer.processNextRequest();
+
+        static uint32_t s_dnsCount = 0;
+        if (++s_dnsCount % 100 == 0) {
+            Serial.printf("[WEB] DNS 已处理 %u 次查询\n", s_dnsCount);
+        }
     }
 }
 
