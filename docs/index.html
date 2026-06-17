@@ -314,7 +314,7 @@ input[type=range]::-moz-range-thumb{
     <span class="fps-display" id="fpsDisplay">0 fps</span></div>
   <div class="media-grid">
     <div>
-      <video id="videoPlayer" muted playsinline></video>
+      <video id="videoPlayer" controls playsinline></video>
       <div class="file-row">
         <button class="btn btn-file" id="btnSelectFile">Select File</button>
         <span class="file-name" id="fileName">No file selected</span>
@@ -442,8 +442,7 @@ class BitStreamApp {
     this.isEspReady      = true;
     this.ackTimeoutId    = null;
     this.lastVideoTime   = -1;
-    this.seeking         = false;
-    this.justSeeked      = false;
+    this.seeking = false; this.justSeeked      = false;
     this.frameSentCount  = 0;
     this.fpsAccum        = 0;
     this.fpsLastTime     = 0;
@@ -468,7 +467,7 @@ class BitStreamApp {
   parseURLParams() {
     const p = new URLSearchParams(window.location.search);
     const ip = p.get("ip");
-    if (ip) { this.ipInput.value = ip; console.log("[BitStreamApp] URL ip=" + ip); }
+    if (ip) { this.ipInput.value = ip; console.log("[BitStreamApp] URL ip=" + ip); setTimeout(() => this.btnConnect.click(), 300); }
   }
 
   bindConnectionEvents() {
@@ -548,10 +547,8 @@ class BitStreamApp {
     });
     this.videoPlayer.addEventListener("seeking", () => { this.seeking = true; });
     this.videoPlayer.addEventListener("seeked", () => {
-      this.seeking = false;
-      this.justSeeked = true;
+      this.seeking = false; this.justSeeked = true;
       this.lastVideoTime = -1;
-      this.processAndSendFrame();
     });
     this.videoPlayer.addEventListener("ended", () => {
       if (this.streaming) this.stopStream();
@@ -568,8 +565,7 @@ class BitStreamApp {
     this.fileName.textContent = "No file selected";
     this.fileInput.value = "";
     this.lastVideoTime = -1;
-    this.seeking = false;
-    this.justSeeked = false;
+    this.seeking = false; this.justSeeked = false;
     this.updateStreamUI();
   }
 
@@ -642,8 +638,7 @@ class BitStreamApp {
     this.streaming = true;
     this.isEspReady = true;
     this.lastVideoTime = -1;
-    this.seeking = false;
-    this.justSeeked = false;
+    this.seeking = false; this.justSeeked = false;
     this.frameSentCount = 0;
     this.fpsAccum = 0;
     this.fpsLastTime = 0;
