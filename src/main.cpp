@@ -1,31 +1,33 @@
 /**
  * @file    main.cpp
- * @brief   主程序入口 — 组装 DisplayManager / NetworkManager / WebServerManager
+ * @brief   BitStream V2 — 阶段一：基础环境与 AP 智能配网
  *
- * @details 本文件将三个独立模块以积木方式组装为完整的二进制流媒体推送终端：
- *          1. WebServerManager  — 80 端口 HTTP 重定向至 GitHub Pages
- *          2. NetworkManager    — 81 端口接收 WebSocket 二进制帧
- *          3. DisplayManager    — 128×64 OLED 帧渲染（I2C 800kHz 超频）
+ * @details 本文件是 V2 架构的第一块积木。当前阶段仅集成 ConfigManager，
+ *          完成 WiFi 凭据持久化、AP 强制门户配网、HTTP 302 重定向三大功能。
  *
- *          loop() 中同时驱动 HTTP 与 WebSocket 两个事件循环，
- *          并在每轮迭代末尾调用 yield() 将控制权交还 ESP8266 WiFi 射频内核，
- *          确保高频推流下 TCP ACK 及时回复，防止电脑端 bufferedAmount 虚高。
+ *          启动流程：
+ *          ┌─ setup() ─────────────────────────────────────┐
+ *          │  1. Serial.begin(115200)                       │
+ *          │  2. config.begin()  ─── 自动决策 AP/Station    │
+ *          └───────────────────────────────────────────────┘
+ *
+ *          ┌─ loop() ──────────────────────────────────────┐
+ *          │  1. config.loop()  ─── 驱动 DNS + HTTP 服务    │
+ *          │  2. delay(1)        ─── WiFi 射频栈让渡        │
+ *          └───────────────────────────────────────────────┘
+ *
+ * @note    阶段二将引入 DisplayManager（OLED 状态显示）
+ *          阶段三将引入 NetworkManager（WebSocket 锁步推流）
  */
 
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-
-#include "DisplayManager.h"
-#include "NetworkManager.h"
-#include "WebServerManager.h"
+#include "ConfigManager.h"
 
 /* ======================================================================== */
 /*  全局模块实例                                                            */
 /* ======================================================================== */
 
-DisplayManager display;
-NetworkManager network;
-WebServerManager webServer;
+ConfigManager config;
 
 /* ======================================================================== */
 /*  setup — 系统初始化                                                      */
@@ -34,33 +36,23 @@ WebServerManager webServer;
 void setup()
 {
     Serial.begin(115200);
+    delay(500); // 给串口芯片稳定时间
 
-    // 1. 初始化 OLED（I2C 超频至 800kHz）并显示连接提示
-    display.begin();
-    display.showStatus("Connecting...");
-
-    // 2. 连接 WiFi
-    network.connectWiFi("REDMI K80 Pro", "123456789");
-
-    // 3. 屏幕显示 IP 地址
-    display.showStatus(WiFi.localIP().toString().c_str());
-
-    // 4. 启动 HTTP 重定向服务（80 端口）
-    webServer.begin();
-
-    // 5. 启动 WebSocket 流媒体服务（81 端口）
-    network.startStreamServer([](uint8_t *payload, size_t length)
-                              { display.renderFrame(payload); });
+    // ConfigManager::begin() 自动决策：
+    //   有凭据 + 连接成功 → Station 模式（HTTP 302 重定向）
+    //   无凭据 / 连接失败 → AP 模式（OLED-BitStream 热点 + Captive Portal）
+    config.begin();
 }
 
 /* ======================================================================== */
-/*  loop — 双路事件驱动 + 内核让渡                                          */
+/*  loop — 事件驱动                                                         */
 /* ======================================================================== */
 
 void loop()
 {
-    webServer.loop(); // 处理 HTTP 请求
-    network.loop();   // 处理 WebSocket 事件
-    delay(1);         // 强制让渡 1ms 给 WiFi 射频栈，确保 sendTXT("ACK") 立即发出
-    yield();          // 再次交还控制权，确保 TCP ACK 及时回复
+    config.loop(); // 驱动 DNS 劫持 + HTTP 服务
+
+    // 极短延时，确保 ESP8266 WiFi 射频栈有机会处理 TCP ACK
+    // 在 AP 模式下此延时对 Captive Portal 响应速度无影响
+    delay(1);
 }
