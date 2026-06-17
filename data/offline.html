@@ -514,7 +514,6 @@ function processAndSend(now) {
 
   lastVideoTime = video.currentTime; justSeeked = false;
 }
-}
 
 // 【防抖】seeking: 暂停帧发送，防止拖拽进度条时 WebSocket 缓冲区溢出
 video.addEventListener('seeking', () => { seeking = true; });
