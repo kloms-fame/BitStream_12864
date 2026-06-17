@@ -567,6 +567,8 @@ class BitStreamApp {
       this.justSeeked = true;
       this.lastVideoTime = -1;
     });
+      this.videoPlayer.addEventListener("play", () => { this.videoPlayer.playbackRate = this.speed; });
+      this.videoPlayer.addEventListener("ratechange", () => { if (this.videoPlayer.playbackRate !== this.speed) this.videoPlayer.playbackRate = this.speed; });
     this.videoPlayer.addEventListener("ended", () => {
       if (this.streaming) this.stopStream();
     });
