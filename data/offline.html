@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>BitStream V2 · 离线控制台</title>
+<style>
+:root{
+  --bg:#0a0a0f;--surface:#111118;--card:#16161f;--border:#1e1e2e;
+  --accent:#00ffcc;--accent-dim:rgba(0,255,204,.08);
+  --danger:#ff4477;--fg:#e0e0e8;--muted:#666680;
+  --font:'Courier New',Consolas,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:14px}
+body{
+  background:var(--bg);
+  background-image:radial-gradient(ellipse at 50% 0%,rgba(0,255,204,.03) 0%,transparent 60%);
+  color:var(--fg);font-family:var(--font);
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:24px 12px 60px;
+}
+.header{text-align:center;margin-bottom:20px}
+.header .ascii{
+  font-size:8px;line-height:1.15;color:var(--accent);
+  white-space:pre;opacity:.85;margin-bottom:4px;
+}
+.header h1{
+  font-size:.85rem;letter-spacing:6px;color:var(--accent);
+  text-transform:uppercase;text-shadow:0 0 12px rgba(0,255,204,.25);
+}
+.header .ver{font-size:.55rem;color:var(--muted);letter-spacing:2px;margin-top:2px}
+
+.card{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:14px 18px;width:100%;max-width:480px;margin-bottom:10px;
+}
+.card-title{
+  font-size:.6rem;font-weight:600;letter-spacing:3px;color:var(--accent);
+  text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:6px;
+}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);flex-shrink:0}
+.dot.off{background:var(--danger);box-shadow:0 0 6px var(--danger)}
+
+input,button{
+  font-family:var(--font);outline:none;
+  transition:border-color .25s,box-shadow .25s;
+}
+input[type=text],input[type=password]{
+  width:100%;padding:8px 10px;background:var(--surface);
+  border:1px solid var(--border);border-radius:4px;
+  color:var(--fg);font-size:.7rem;margin-bottom:7px;
+}
+input:focus{border-color:var(--accent);box-shadow:0 0 8px rgba(0,255,204,.12)}
+::placeholder{color:var(--muted)}
+
+.btn{
+  display:block;width:100%;padding:9px;margin-top:2px;
+  background:transparent;border:1px solid var(--accent);border-radius:4px;
+  color:var(--accent);font-size:.65rem;cursor:pointer;
+  letter-spacing:3px;text-transform:uppercase;transition:all .3s;
+}
+.btn:hover{background:var(--accent);color:var(--bg);box-shadow:0 0 16px rgba(0,255,204,.25)}
+.btn:active{transform:scale(.97)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.btn.danger:hover{background:var(--danger);color:var(--bg)}
+.btn:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+
+.status{
+  font-size:.55rem;text-align:center;margin-top:6px;
+  color:var(--muted);letter-spacing:1px;
+}
+.status.on{color:var(--accent)}
+.status.off{color:var(--danger)}
+
+.row{display:flex;align-items:center;gap:6px;margin:4px 0}
+.row label{font-size:.55rem;color:var(--muted);flex-shrink:0;cursor:pointer}
+.row input[type=checkbox]{accent-color:var(--accent);cursor:pointer}
+
+canvas{
+  display:block;image-rendering:pixelated;
+  width:512px;height:256px;margin:8px auto;
+  border:1px solid var(--border);border-radius:4px;
+  background:#000;
+}
+
+.slider{
+  width:100%;margin:2px 0;-webkit-appearance:none;appearance:none;
+  height:4px;background:var(--surface);border-radius:2px;
+}
+.slider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;
+  background:var(--accent);border-radius:50%;cursor:pointer;
+}
+.slider::-moz-range-thumb{
+  width:14px;height:14px;background:var(--accent);border-radius:50%;cursor:pointer;border:none;
+}
+
+.file-input{
+  font-size:.6rem;color:var(--accent);margin-bottom:8px;width:100%;
+}
+.file-input::file-selector-button{
+  background:var(--surface);border:1px solid var(--border);border-radius:4px;
+  color:var(--accent);font-family:var(--font);font-size:.6rem;
+  padding:5px 10px;cursor:pointer;margin-right:8px;
+}
+
+.fps-badge{
+  font-size:.55rem;color:var(--accent);margin-left:auto;
+}
+.footer{
+  text-align:center;font-size:.5rem;color:var(--muted);
+  margin-top:8px;letter-spacing:2px;
+}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- ================================================================== -->
+<!--  Header                                                              -->
+<!-- ================================================================== -->
+<div class="header">
+<div class="ascii">
+  ____  _ _   _       ____
+ |  _ \(_) |_| |_ ___/ ___| _ __ ___  __ _ _ __   ___
+ | | | | | __| __/ _ \___ \| '__/ _ \/ _` | '_ \ / _ \
+ | |_| | | |_| || (_) |__) | | |  __/ (_| | |_) | (_) |
+ |____/|_|\__|\__\___/____/|_|  \___|\__,_| .__/ \___/
+                                          |_|    V2.0
+</div>
+<h1>离线控制台</h1>
+<div class="ver">OFFLINE MODE · ESP8266 · SSD1306</div>
+</div>
+
+<!-- ================================================================== -->
+<!--  WiFi 配网卡片                                                       -->
+<!-- ================================================================== -->
+<div class="card">
+<div class="card-title"><span class="dot"></span>WiFi 配网终端</div>
+<input type="text" id="ssid" placeholder="WiFi 名称 (SSID)" autofocus>
+<input type="password" id="pass" placeholder="WiFi 密码">
+<button class="btn" id="btnConnect" onclick="doSetWiFi()">[ 连接并重启 ]</button>
+<div class="status" id="wifiStatus">输入凭据后点击连接</div>
+</div>
+
+<!-- ================================================================== -->
+<!--  离线推流卡片                                                        -->
+<!-- ================================================================== -->
+<div class="card">
+<div class="card-title">
+  <span class="dot off" id="streamDot"></span>离线推流引擎
+  <span class="fps-badge" id="fpsDisplay">0 fps</span>
+</div>
+
+<input type="file" class="file-input" id="fileInput" accept="video/*">
+
+<canvas id="preview" width="128" height="64"></canvas>
+
+<div class="row">
+  <button class="btn" id="btnStart" onclick="toggleStream()">[ 开始推流 ]</button>
+  <button class="btn danger hidden" id="btnStop" onclick="toggleStream()">[ 停止推流 ]</button>
+</div>
+<div class="status off" id="streamStatus">IDLE</div>
+
+<div class="row" style="margin-top:8px">
+  <label style="color:var(--accent)">亮度</label>
+  <span style="font-size:.5rem;color:var(--muted);min-width:24px;text-align:right" id="brightVal">255</span>
+</div>
+<input type="range" class="slider" id="brightness" min="0" max="255" value="255" oninput="onBrightness(this.value)">
+
+<div class="row" style="margin-top:6px">
+  <label><input type="checkbox" id="chkGreen" onchange="onFlags()"> 过滤绿幕</label>
+  <label><input type="checkbox" id="chkInvert" onchange="onFlags()"> 反转颜色</label>
+</div>
+</div>
+
+<div class="footer">ESP8266 &middot; SSD1306 128×64 &middot; WebSocket 81</div>
+
+<!-- ================================================================== -->
+<!--  隐藏元素                                                             -->
+<!-- ================================================================== -->
+<video id="video" class="hidden" muted loop playsinline></video>
+<canvas id="hiddenCanvas" class="hidden" width="128" height="64"></canvas>
+
+<!-- ================================================================== -->
+<!--  JavaScript 核心引擎                                                   -->
+<!-- ================================================================== -->
+<script>
+'use strict';
+
+/* ============================== CONSTANTS =========================== */
+const WS_URL  = 'ws://192.168.4.1:81';
+const W = 128, H = 64, FRAME_BYTES = 1024;
+
+/* ============================== DOM REFS ============================ */
+const $ = id => document.getElementById(id);
+const wifiStatus  = $('wifiStatus');
+const streamStatus= $('streamStatus');
+const streamDot   = $('streamDot');
+const btnStart    = $('btnStart');
+const btnStop     = $('btnStop');
+const fpsDisplay  = $('fpsDisplay');
+const brightVal   = $('brightVal');
+const brightness  = $('brightness');
+const chkGreen    = $('chkGreen');
+const chkInvert   = $('chkInvert');
+const fileInput   = $('fileInput');
+const video       = $('video');
+const preview     = $('preview');
+const hiddenCvs   = $('hiddenCanvas');
+
+const previewCtx  = preview.getContext('2d');
+const hiddenCtx   = hiddenCvs.getContext('2d', {willReadFrequently:true});
+
+/* ============================== STATE =============================== */
+let ws         = null;
+let connected  = false;
+let streaming  = false;
+let isEspReady = true;
+let greenScreen= false;
+let invert     = false;
+let threshold  = 128;
+let lastVideoTime = -1;
+let frameSentCount= 0;
+let fpsAccum   = 0;
+let fpsLastTime= 0;
+let rafId      = null;
+let ackTimeoutId = null;
+
+/* ============================== WIFI CONFIG ========================= */
+function doSetWiFi() {
+  const ssid = $('ssid').value.trim();
+  const pass = $('pass').value.trim();
+  if (!ssid) { wifiStatus.textContent = '请输入 SSID'; wifiStatus.className='status off'; return; }
+
+  wifiStatus.textContent = '正在保存...';
+  wifiStatus.className = 'status';
+
+  const body = new URLSearchParams();
+  body.append('ssid', ssid);
+  body.append('pwd', pass);
+
+  fetch('/api/setwifi', { method:'POST', body,
+    headers:{'Content-Type':'application/x-www-form-urlencoded'} })
+    .then(r => r.text())
+    .then(t => { wifiStatus.textContent = t; wifiStatus.className = 'status on'; })
+    .catch(e => { wifiStatus.textContent = '请求失败: ' + e; wifiStatus.className = 'status off'; });
+}
+
+/* ============================== WEBSOCKET =========================== */
+function connectWS() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    connected = true;
+    streamStatus.textContent = 'WebSocket 已连接';
+    streamStatus.className = 'status on';
+    streamDot.classList.remove('off');
+    updateStreamButton();
+    // 发送当前亮度值
+    sendBrightness(brightness.value);
+  };
+
+  ws.onclose = () => {
+    connected = false;
+    if (streaming) stopStream();
+    streamStatus.textContent = 'WebSocket 已断开';
+    streamStatus.className = 'status off';
+    streamDot.classList.add('off');
+    updateStreamButton();
+  };
+
+  ws.onerror = () => {
+    streamStatus.textContent = 'WebSocket 错误';
+    streamStatus.className = 'status off';
+  };
+
+  ws.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      if (e.data === 'ACK') {
+        isEspReady = true;
+        if (ackTimeoutId) { clearTimeout(ackTimeoutId); ackTimeoutId = null; }
+      }
+      // 'OK' from brightness command — silent
+    }
+  };
+}
+
+/* ============================== BRIGHTNESS ========================== */
+function onBrightness(val) {
+  brightVal.textContent = val;
+  if (connected) sendBrightness(val);
+}
+
+function sendBrightness(val) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send('BRIGHTNESS:' + val);
+  }
+}
+
+/* ============================== FLAGS =============================== */
+function onFlags() {
+  greenScreen = chkGreen.checked;
+  invert      = chkInvert.checked;
+}
+
+/* ============================== FILE INPUT ========================== */
+fileInput.addEventListener('change', function() {
+  const f = this.files[0];
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  video.src = url;
+  video.load();
+  updateStreamButton();
+});
+
+/* ============================== STREAM CONTROL ====================== */
+function updateStreamButton() {
+  const canStream = connected && video.src && video.src !== window.location.href;
+  if (streaming) {
+    btnStart.classList.add('hidden');
+    btnStop.classList.remove('hidden');
+  } else {
+    btnStart.classList.remove('hidden');
+    btnStop.classList.add('hidden');
+    btnStart.disabled = !canStream;
+  }
+}
+
+function toggleStream() {
+  if (streaming) stopStream();
+  else startStream();
+}
+
+function startStream() {
+  if (streaming) return;
+  if (!connected || !video.src || video.src === window.location.href) return;
+
+  streaming    = true;
+  isEspReady   = true;
+  lastVideoTime= -1;
+  frameSentCount=0;
+  fpsAccum     = 0;
+  fpsLastTime  = 0;
+
+  video.play();
+  updateStreamButton();
+  streamStatus.textContent = '推流中...';
+  streamStatus.className = 'status on';
+  streamDot.classList.remove('off');
+
+  rafId = requestAnimationFrame(function loop(ts) { tick(ts); if (streaming) rafId = requestAnimationFrame(loop); });
+}
+
+function stopStream() {
+  if (!streaming) return;
+  streaming = false;
+  isEspReady = true;
+  if (ackTimeoutId) { clearTimeout(ackTimeoutId); ackTimeoutId = null; }
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  if (video && !video.paused) video.pause();
+  updateStreamButton();
+  streamStatus.textContent = 'IDLE (' + frameSentCount + ' 帧已发送)';
+  streamStatus.className = 'status off';
+  streamDot.classList.add('off');
+  fpsDisplay.textContent = '0 fps';
+}
+
+/* ============================== TICK ================================ */
+function tick(timestamp) {
+  if (!streaming || !isEspReady) return;
+
+  // 跳过重复帧（播放器未推进）
+  const ct = video.currentTime;
+  if (ct === lastVideoTime && !video.paused) return;
+
+  fpsAccum++;
+  if (!fpsLastTime) fpsLastTime = timestamp;
+  if (timestamp - fpsLastTime >= 1000) {
+    fpsDisplay.textContent = fpsAccum + ' fps';
+    fpsAccum = 0;
+    fpsLastTime = timestamp;
+  }
+
+  processAndSend();
+}
+
+/* ============================== FRAME PROCESSOR ===================== */
+function processAndSend() {
+  if (video.readyState < 2) return;
+
+  /* Step 1: Draw video → hidden canvas */
+  hiddenCtx.drawImage(video, 0, 0, W, H);
+  const imgData = hiddenCtx.getImageData(0, 0, W, H);
+  const px = imgData.data;
+  const xbm = new Uint8Array(FRAME_BYTES);
+
+  /* Step 2: Integer grayscale pipeline + thresholds */
+  const gs = greenScreen;
+  const inv= invert;
+  const th = threshold;
+
+  for (let y = 0; y < H; y++) {
+    const ro = y * W * 4;
+    for (let bx = 0; bx < 16; bx++) {
+      let bv = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const i = ro + (bx * 8 + bit) * 4;
+        const r = px[i], g = px[i+1], b = px[i+2];
+
+        let bright;
+        // 绿幕过滤: 绿色通道显著高于红/蓝 → 视为黑色
+        if (gs && g > r * 1.3 && g > b * 1.3) {
+          bright = 0;
+        } else {
+          // 整数灰度: (R*299 + G*587 + B*114) / 1000
+          bright = ((r * 299 + g * 587 + b * 114) / 1000) > th ? 1 : 0;
+        }
+        if (inv) bright ^= 1;
+        if (bright) bv |= (1 << bit);
+      }
+      xbm[y * 16 + bx] = bv;
+    }
+  }
+
+  /* Step 3: Preview render */
+  const pd = previewCtx.createImageData(W, H);
+  const pp = pd.data;
+  for (let y = 0; y < H; y++) {
+    for (let bx = 0; bx < 16; bx++) {
+      const bv = xbm[y * 16 + bx];
+      for (let bit = 0; bit < 8; bit++) {
+        const idx = (y * W + bx * 8 + bit) * 4;
+        const v = (bv >> bit) & 1 ? 255 : 0;
+        pp[idx] = pp[idx+1] = pp[idx+2] = v;
+        pp[idx+3] = 255;
+      }
+    }
+  }
+  previewCtx.putImageData(pd, 0, 0);
+
+  /* Step 4: WebSocket send + ACK lockstep */
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    stopStream();
+    return;
+  }
+  ws.send(xbm.buffer);
+  frameSentCount++;
+
+  /* Step 5: Lock + 200ms deadlock timeout */
+  isEspReady = false;
+  lastVideoTime = video.currentTime;
+  if (ackTimeoutId) clearTimeout(ackTimeoutId);
+  ackTimeoutId = setTimeout(function() {
+    if (!isEspReady) {
+      isEspReady = true;
+      console.warn('[Stream] ACK timeout 200ms - auto unlock');
+    }
+    ackTimeoutId = null;
+  }, 200);
+}
+
+/* ============================== INIT ================================ */
+connectWS();
+// 周期性重连（WebSocket 断开后 3 秒重试）
+setInterval(function() {
+  if (!connected && (!ws || ws.readyState === WebSocket.CLOSED)) {
+    connectWS();
+  }
+}, 3000);
+
+// 页面卸载时清理
+window.addEventListener('beforeunload', function() {
+  if (streaming) stopStream();
+  if (ws) ws.close();
+});
+</script>
+</body>
+</html>

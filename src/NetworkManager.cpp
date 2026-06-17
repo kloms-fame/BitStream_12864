@@ -1,15 +1,27 @@
 /**
  * @file    NetworkManager.cpp
- * @brief   NetworkManager 类的方法实现
+ * @brief   NetworkManager — AP/STA 双状态机 + WebSocket ACK 锁步完整实现
  *
- * @details 完整实现 WebSocket 服务端（端口 81）：
- *          - 二进制帧（1024B）接收 → 回调触发 → ACK 回复
- *          - 文本指令 "BRIGHTNESS:XXX" 解析 → 回调触发 → OK 回复
- *          - 客户端连接/断开日志与统计
- *          - 零显示依赖、零 WiFi 管理依赖
+ * @details 启动序列：
+ *          LittleFS 挂载 → /wifi.txt 加载 → STA 3次重试 → 失败则 AP
+ *
+ *          WebSocket 协议：
+ *          PC → ESP   BIN  1024B XBM 帧
+ *          ESP → PC   TXT  "ACK"
+ *          PC → ESP   TXT  "BRIGHTNESS:0~255"
+ *          ESP → PC   TXT  "OK"
  */
 
 #include "NetworkManager.h"
+
+/* ========================================================================== */
+/*  静态成员初始化                                                             */
+/* ========================================================================== */
+
+NetworkManager::Mode NetworkManager::s_mode = NetworkManager::Mode::INIT;
+
+const char* NetworkManager::CRED_FILE = "/wifi.txt";
+const char* NetworkManager::AP_SSID   = "OLED-BitStream";
 
 /* ========================================================================== */
 /*  构造函数                                                                  */
@@ -21,18 +33,239 @@ NetworkManager::NetworkManager()
 }
 
 /* ========================================================================== */
-/*  begin() — 启动 WebSocket 服务器并注册双回调                                */
+/*  begin() — 入口：凭据加载 → STA / AP → WebSocket                            */
 /* ========================================================================== */
 
 void NetworkManager::begin(FrameCallback onFrame, BrightnessCallback onBrightness)
 {
-    m_webSocket.begin();
-    Serial.printf("[NET] WebSocket 服务器已启动 — 端口 %u\n", WS_PORT);
+    m_onFrame      = onFrame;
+    m_onBrightness = onBrightness;
 
-    // ── 注册 WebSocket 事件处理器 ──────────────────────────────────────
+    /* ---- 1. 挂载 LittleFS ------------------------------------------------- */
+    Serial.println(F("[NET] 挂载 LittleFS ..."));
+    if (!LittleFS.begin())
+    {
+        Serial.println(F("[NET] 挂载失败，尝试格式化 ..."));
+        if (!LittleFS.format() || !LittleFS.begin())
+        {
+            Serial.println(F("[NET] 文件系统不可用，直接进入 AP 模式"));
+            startAPMode();
+            startWebSocket();
+            return;
+        }
+    }
+    Serial.println(F("  [OK]"));
+
+    /* ---- 2. 加载凭据 ----------------------------------------------------- */
+    String savedSSID, savedPass;
+    const bool hasCreds = loadCredentials(savedSSID, savedPass);
+
+    if (hasCreds && savedSSID.length() > 0)
+    {
+        Serial.printf("[NET] 找到凭据: SSID=\"%s\"\n", savedSSID.c_str());
+
+        if (connectWiFi(savedSSID.c_str(), savedPass.c_str()))
+        {
+            s_mode = Mode::STATION_CONNECTED;
+        }
+        else
+        {
+            Serial.println(F("[NET] 3次连接均失败，清除旧凭据，进入 AP"));
+            LittleFS.remove(CRED_FILE);
+            startAPMode();
+        }
+    }
+    else
+    {
+        Serial.println(F("[NET] 无已保存凭据，进入 AP 模式"));
+        startAPMode();
+    }
+
+    /* ---- 3. 启动 WebSocket（双模式均运行）--------------------------------- */
+    startWebSocket();
+}
+
+/* ========================================================================== */
+/*  loop()                                                                     */
+/* ========================================================================== */
+
+void NetworkManager::loop()
+{
+    m_webSocket.loop();
+}
+
+/* ========================================================================== */
+/*  isAPMode()                                                                 */
+/* ========================================================================== */
+
+bool NetworkManager::isAPMode()
+{
+    return s_mode == Mode::AP_CONFIG;
+}
+
+/* ========================================================================== */
+/*  saveWiFiAndReboot()                                                        */
+/* ========================================================================== */
+
+void NetworkManager::saveWiFiAndReboot(const char *ssid, const char *pass)
+{
+    Serial.printf("[NET] 保存凭据: SSID=\"%s\"\n", ssid);
+
+    File f = LittleFS.open(CRED_FILE, "w");
+    if (f)
+    {
+        f.print(ssid);
+        f.print('\n');
+        f.print(pass);
+        f.close();
+        Serial.printf("[NET] 凭据已写入 %s\n", CRED_FILE);
+    }
+    else
+    {
+        Serial.println(F("[NET] 无法创建凭据文件"));
+    }
+
+    Serial.println(F("[NET] 500ms 后重启 ..."));
+    delay(500);
+    ESP.restart();
+}
+
+/* ========================================================================== */
+/*  getClientCount()                                                           */
+/* ========================================================================== */
+
+uint8_t NetworkManager::getClientCount()
+{
+    return m_webSocket.connectedClients();
+}
+
+/* ========================================================================== */
+/*  私有 — loadCredentials()                                                   */
+/* ========================================================================== */
+
+bool NetworkManager::loadCredentials(String &ssid, String &pass)
+{
+    if (!LittleFS.exists(CRED_FILE))
+        return false;
+
+    File f = LittleFS.open(CRED_FILE, "r");
+    if (!f)
+    {
+        Serial.println(F("[NET] 无法打开凭据文件"));
+        return false;
+    }
+
+    // 格式: ssid\npassword
+    ssid = f.readStringUntil('\n');
+    pass = f.readStringUntil('\n');
+    f.close();
+
+    ssid.trim();
+    pass.trim();
+
+    if (ssid.length() == 0)
+    {
+        Serial.println(F("[NET] 凭据文件中 SSID 为空"));
+        return false;
+    }
+
+    return true;
+}
+
+/* ========================================================================== */
+/*  私有 — connectWiFi() — 3次重试 × 15s超时 × 1s间隔                        */
+/* ========================================================================== */
+
+bool NetworkManager::connectWiFi(const char *ssid, const char *pass)
+{
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, pass);
+
+    for (uint8_t attempt = 0; attempt < MAX_RETRIES; ++attempt)
+    {
+        Serial.printf("[NET] 连接 WiFi (第 %u/%u 次): \"%s\" ...\n",
+                      attempt + 1, MAX_RETRIES, ssid);
+
+        const unsigned long deadline = millis() + 15000UL;
+
+        while (WiFi.status() != WL_CONNECTED)
+        {
+            if (millis() > deadline)
+            {
+                Serial.printf("[NET] 第 %u 次连接超时 (15s)\n", attempt + 1);
+                break;
+            }
+            delay(200);
+            Serial.print('.');
+        }
+
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            Serial.println();
+            Serial.printf("[NET] WiFi 连接成功! IP: %s, RSSI: %d dBm\n",
+                          WiFi.localIP().toString().c_str(), WiFi.RSSI());
+
+            // 回写凭据确保最新正确
+            File f = LittleFS.open(CRED_FILE, "w");
+            if (f)
+            {
+                f.print(ssid);
+                f.print('\n');
+                f.print(pass);
+                f.close();
+            }
+
+            return true;
+        }
+
+        if (attempt < MAX_RETRIES - 1)
+        {
+            Serial.println(F("[NET] 等待 1 秒后重试 ..."));
+            delay(1000);
+        }
+    }
+
+    Serial.println(F("[NET] 全部 3 次重试均失败"));
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    return false;
+}
+
+/* ========================================================================== */
+/*  私有 — startAPMode()                                                       */
+/* ========================================================================== */
+
+void NetworkManager::startAPMode()
+{
+    Serial.println(F("[NET] >>> 进入 AP 模式 <<<"));
+
+    WiFi.mode(WIFI_AP);
+
+    // 配置静态 IP: 192.168.4.1 / 255.255.255.0
+    const IPAddress apIP(192, 168, 4, 1);
+    const IPAddress subnet(255, 255, 255, 0);
+
+    WiFi.softAPConfig(apIP, apIP, subnet);
+    WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);  // 无密码，信道 1，隐藏关闭，最大 4 客户端
+
+    Serial.printf("[NET] AP 热点已开放: SSID=\"%s\" (无密码)\n", AP_SSID);
+    Serial.printf("[NET] IP: %s\n", apIP.toString().c_str());
+
+    s_mode = Mode::AP_CONFIG;
+}
+
+/* ========================================================================== */
+/*  私有 — startWebSocket() — 注册双回调 + ACK 锁步                            */
+/* ========================================================================== */
+
+void NetworkManager::startWebSocket()
+{
+    m_webSocket.begin();
+    Serial.printf("[NET] WebSocket 服务已启动 — 端口 %u\n", WS_PORT);
+
     m_webSocket.onEvent(
-        [this, onFrame = std::move(onFrame), onBrightness = std::move(onBrightness)]
-        (uint8_t clientNum, WStype_t type, uint8_t *payload, size_t length)
+        [this](uint8_t clientNum, WStype_t type, uint8_t *payload, size_t length)
         {
             switch (type)
             {
@@ -43,8 +276,7 @@ void NetworkManager::begin(FrameCallback onFrame, BrightnessCallback onBrightnes
             {
                 const IPAddress remoteIP = m_webSocket.remoteIP(clientNum);
                 Serial.printf("[NET] 客户端 #%u 已连接 — IP: %s\n",
-                              clientNum,
-                              remoteIP.toString().c_str());
+                              clientNum, remoteIP.toString().c_str());
                 break;
             }
 
@@ -64,22 +296,15 @@ void NetworkManager::begin(FrameCallback onFrame, BrightnessCallback onBrightnes
             {
                 if (length == FRAME_SIZE)
                 {
-                    // 1. 调用上层渲染回调（零拷贝传递指针）
-                    //    回调内部应立即消费 payload 数据（例如 memcpy 到帧缓冲）
-                    if (onFrame)
+                    if (m_onFrame)
                     {
-                        onFrame(payload, length);
+                        m_onFrame(payload, length);
                     }
-
-                    // 2. 发送应用层 ACK 确认
-                    //    前端收到 "ACK" 后才推送下一帧，实现锁步背压控制
-                    //    这从根本上杜绝了 TCP 发送缓冲区无限堆积的问题
                     m_webSocket.sendTXT(clientNum, "ACK");
                 }
                 else
                 {
-                    // 异常帧长度：记录日志但不中断服务
-                    Serial.printf("[NET] 客户端 #%u 发送异常 BIN 帧: "
+                    Serial.printf("[NET] 客户端 #%u 异常 BIN 帧: "
                                   "期望 %u 字节，实际 %u 字节\n",
                                   clientNum, FRAME_SIZE, length);
                 }
@@ -91,36 +316,30 @@ void NetworkManager::begin(FrameCallback onFrame, BrightnessCallback onBrightnes
             /* ---------------------------------------------------------- */
             case WStype_TEXT:
             {
-                // payload 是 C 字符串，可直接解析
                 const char *text = reinterpret_cast<const char *>(payload);
-
-                // 尝试解析亮度控制指令 "BRIGHTNESS:XXX"
                 uint8_t brightness = 0;
+
                 if (parseBrightnessCommand(text, brightness))
                 {
                     Serial.printf("[NET] 客户端 #%u 指令: 亮度 → %u\n",
                                   clientNum, brightness);
 
-                    // 调用亮度回调（→ DisplayManager::setBrightness）
-                    if (onBrightness)
+                    if (m_onBrightness)
                     {
-                        onBrightness(brightness);
+                        m_onBrightness(brightness);
                     }
-
-                    // 回复确认
                     m_webSocket.sendTXT(clientNum, "OK");
                 }
                 else
                 {
-                    // 未知文本指令：记录后静默忽略
-                    Serial.printf("[NET] 客户端 #%u 发送未知指令: \"%s\"\n",
+                    Serial.printf("[NET] 客户端 #%u 未知指令: \"%s\"\n",
                                   clientNum, text);
                 }
                 break;
             }
 
             /* ---------------------------------------------------------- */
-            /*  PING / PONG / ERROR / 其他事件 — 静默忽略                     */
+            /*  PING/PONG/ERROR — 静默忽略                                   */
             /* ---------------------------------------------------------- */
             default:
                 break;
@@ -129,56 +348,31 @@ void NetworkManager::begin(FrameCallback onFrame, BrightnessCallback onBrightnes
 }
 
 /* ========================================================================== */
-/*  loop() — WebSocket 事件循环                                               */
-/* ========================================================================== */
-
-void NetworkManager::loop()
-{
-    m_webSocket.loop();
-}
-
-/* ========================================================================== */
-/*  getClientCount()                                                           */
-/* ========================================================================== */
-
-uint8_t NetworkManager::getClientCount()
-{
-    return m_webSocket.connectedClients();
-}
-
-/* ========================================================================== */
-/*  parseBrightnessCommand() — 静态指令解析器                                   */
+/*  私有静态 — parseBrightnessCommand()                                        */
 /* ========================================================================== */
 
 bool NetworkManager::parseBrightnessCommand(const char *text, uint8_t &brightness)
 {
-    // 匹配前缀 "BRIGHTNESS:"（大小写不敏感）
-    // 格式：BRIGHTNESS:0 至 BRIGHTNESS:255
-    // 示例："BRIGHTNESS:128" → brightness = 128
-
     const char prefix[] = "BRIGHTNESS:";
-    constexpr size_t prefixLen = sizeof(prefix) - 1; // 不含 '\0'
+    constexpr size_t prefixLen = sizeof(prefix) - 1;
 
-    // 大小写不敏感前缀匹配
     for (size_t i = 0; i < prefixLen; ++i)
     {
         char c = text[i];
-        if (c == '\0') return false;           // 文本短于前缀
-        if (c >= 'a' && c <= 'z') c -= 32;     // 转大写
-        if (c != prefix[i]) return false;       // 前缀不匹配
+        if (c == '\0') return false;
+        if (c >= 'a' && c <= 'z') c -= 32;
+        if (c != prefix[i]) return false;
     }
 
-    // 解析冒号后的数字部分
     const char *numStr = text + prefixLen;
-    if (*numStr == '\0') return false;         // 缺少数值
+    if (*numStr == '\0') return false;
 
-    // 手动 atoi（避免 String 堆分配，关键路径优化）
     uint16_t value = 0;
     for (const char *p = numStr; *p != '\0'; ++p)
     {
-        if (*p < '0' || *p > '9') return false; // 含非数字字符
+        if (*p < '0' || *p > '9') return false;
         value = value * 10 + (*p - '0');
-        if (value > 255) return false;          // 数值越界
+        if (value > 255) return false;
     }
 
     brightness = static_cast<uint8_t>(value);

@@ -1,51 +1,89 @@
 /**
  * @file    WebServerManager.h
- * @brief   Web 服务器管理模块 — HTTP 重定向路由器
+ * @brief   V2 Web 服务器管理 — DNS 劫持 + 动态路由 + 强制门户
  *
- * @details 监听 80 端口，收到 GET / 请求时构造 GitHub Pages
- *          重定向 URL（附带设备局域网 IP 参数），
- *          返回 HTTP 302 将客户端引导至前端控制台页面。
- *          与 NetworkManager（WebSocket 81 端口）互不干扰。
+ * @details 本模块负责 HTTP (80 端口) 和 DNS (53 端口) 的所有逻辑。
+ *          根据 NetworkManager::isAPMode() 动态切换行为：
+ *
+ *          AP 模式 (离线):
+ *          - DNS 劫持 * → 192.168.4.1
+ *          - Captive Portal 精准拦截 (generate_204 等)
+ *          - GET / → LittleFS 提供 /offline.html
+ *          - POST /api/setwifi → NetworkManager::saveWiFiAndReboot()
+ *
+ *          STA 模式 (在线):
+ *          - GET / → HTTP 302 → GitHub Pages 控制台
+ *          - DNS 不启动
+ *
+ *          零网络管理依赖：仅通过 NetworkManager 静态方法查询/写入，
+ *          不持有 NetworkManager 实例指针。
  */
 
 #ifndef WEB_SERVER_MANAGER_H
 #define WEB_SERVER_MANAGER_H
 
+#include <Arduino.h>
 #include <ESP8266WebServer.h>
+#include <DNSServer.h>
+#include <LittleFS.h>
 
-/**
- * @class WebServerManager
- * @brief 管理 ESP8266 HTTP 服务器（端口 80），将请求重定向至 GitHub Pages
- */
 class WebServerManager
 {
 public:
-    /**
-     * @brief 构造 WebServerManager 实例
-     *
-     * @details 初始化列表创建 80 端口 HTTP 服务端对象。
-     */
+    /* ================================================================== */
+    /*  常量                                                               */
+    /* ================================================================== */
+
+    static constexpr uint16_t HTTP_PORT = 80;
+    static constexpr uint16_t DNS_PORT  = 53;
+
+    /* ================================================================== */
+    /*  构造函数 / 公有接口                                                 */
+    /* ================================================================== */
+
     WebServerManager();
 
     /**
-     * @brief 注册重定向路由并启动 HTTP 服务
+     * @brief 注册全部路由并启动 HTTP 服务（AP 模式额外启动 DNS 劫持）
      *
-     * @details 注册 GET / 路由：构造 GitHub Pages URL 并返回 302 重定向。
-     *          URL 格式：https://kloms-fame.github.io/BitStream_12864/?ip=<局域网IP>
-     *          随后调用 server.begin() 启动 HTTP 服务。
+     * @details 路由表：
+     *          GET  /                       → serveRoot() (AP→离线页 / STA→302)
+     *          POST /api/setwifi            → handleSetWiFi()
+     *          GET  /generate_204           → 302 → /
+     *          GET  /hotspot-detect.html    → 302 → /
+     *          GET  /library/test/success.html → 302 → /
+     *          GET  /canonical.html         → 302 → /
+     *          GET  /success.txt            → 302 → /
+     *          GET  /ncsi.txt               → "Microsoft Connect Test"
+     *          GET  /connecttest.txt        → "Microsoft Connect Test"
+     *          GET  /redirect               → 302 → /
+     *          GET  /fwlink                 → 302 → /
+     *          GET  /check_network_status.txt → 302 → /
+     *          其他所有路径                  → 302 → /
      */
     void begin();
 
-    /**
-     * @brief 驱动 HTTP 服务器事件循环
-     *
-     * @details 内部仅调用 server.handleClient()，
-     *          需在 main loop() 中高频调用。
-     */
+    /** @brief 驱动 DNS + HTTP 事件循环 */
     void loop();
 
 private:
-    ESP8266WebServer server; ///< 监听 80 端口的 HTTP 服务器实例
+    /* ================================================================== */
+    /*  路由处理器                                                         */
+    /* ================================================================== */
+
+    void serveRoot();
+    void handleSetWiFi();
+    void serveOfflinePage();
+    void redirectToRoot();
+    void serveNcsiOK();
+    void serve204NoContent();
+
+    /* ================================================================== */
+    /*  成员变量                                                           */
+    /* ================================================================== */
+
+    DNSServer        m_dnsServer;
+    ESP8266WebServer m_httpServer;
 };
 
 #endif // WEB_SERVER_MANAGER_H

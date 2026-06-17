@@ -2,24 +2,13 @@
  * @file    main.cpp
  * @brief   BitStream V2 — 组装层（Composition Root）
  *
- * @details 本文件是 V2 架构唯一的"胶水层"。
- *          三个模块（Config / Display / Network）彼此完全陌生，
- *          仅在 main.cpp 中通过 std::function 回调完成接线。
+ * @details 三模块零耦合组装：
+ *          NetworkManager (WiFi STA/AP + WebSocket:81)
+ *          WebServerManager (HTTP:80 + DNS:53 + Captive Portal)
+ *          DisplayManager (OLED 800kHz XBM 渲染)
  *
- *          启动序列：
- *          Serial → Display("Booting...") → Config.begin() → Display(IP) → Network.begin()
- *
- *          ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
- *          │ConfigManager │    │DisplayManager│    │NetworkManager│
- *          │ WiFi / HTTP  │    │ OLED 800kHz  │    │ WebSocket:81 │
- *          └──────┬───────┘    └──────▲───────┘    └──────┬───────┘
- *                 │                  │  renderFrame       │
- *                 │                  │  setBrightness     │
- *                 │             ┌────┴────┐              │
- *                 │             │ main.cpp │◄─────────────┘
- *                 │             │  Lambda  │
- *                 └─────────────┤ 接线盒   │
- *                               └──────────┘
+ *          AP 模式实时反馈：通过 WiFiEventHandler 监听客户端接入/断开，
+ *          立即更新 OLED 屏幕和串口日志。
  *
  * @warning loop() 底部必须保留 delay(1) + yield()，
  *          这是 ESP8266 单核 WiFi 栈不被推流饿死的唯一保障。
@@ -27,17 +16,24 @@
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include "ConfigManager.h"
-#include "DisplayManager.h"
 #include "NetworkManager.h"
+#include "WebServerManager.h"
+#include "DisplayManager.h"
 
 /* ======================================================================== */
 /*  全局模块实例（文件作用域，构造即初始化，零堆分配）                          */
 /* ======================================================================== */
 
-ConfigManager  config;
-DisplayManager display;
-NetworkManager network;
+NetworkManager  network;
+WebServerManager webServer;
+DisplayManager  display;
+
+/* ======================================================================== */
+/*  AP 客户端事件监听器（静态句柄，防止 Lambda 捕获被过早释放）                */
+/* ======================================================================== */
+
+static WiFiEventHandler apConnHandler;
+static WiFiEventHandler apDisconnHandler;
 
 /* ======================================================================== */
 /*  setup                                                                    */
@@ -49,49 +45,60 @@ void setup()
     Serial.begin(115200);
     delay(300);
 
-    /* ---- 1. 显示内核最先启动（后续所有状态通过 OLED 可视化）----------- */
+    /* ---- 1. 显示内核最先启动 ------------------------------------------ */
     display.begin();
     display.showStatus("Booting...");
 
-    /* ---- 2. 网络配网（内部阻塞最长 15s 等待 WiFi）-------------------- */
-    // 传入 StatusCallback：ConfigManager 在关键状态变化时回调 OLED
-    // 例如：WiFi 连接中 → "Connecting..."
-    //       AP 客户端连接 → "Client Connected!"
-    config.begin([](const char* msg) {
-        display.showStatus(msg);
-    });
+    /* ---- 2. 网络内核启动（内部阻塞最多 45s STA 重试 / 直接进入 AP）--- */
+    network.begin(
+        [](uint8_t *payload, size_t /*length*/) {
+            display.renderFrame(payload);
+        },
+        [](uint8_t brightness) {
+            display.setBrightness(brightness);
+        }
+    );
 
-    /* ---- 3. 分支：已连接 → 推流模式 / 未连接 → AP 配网模式 ----------- */
-    if (config.isWiFiConnected())
+    /* ---- 3. 注册 AP 客户端事件 — OLED + 串口实时反馈 ----------------- */
+    apConnHandler = WiFi.onSoftAPModeStationConnected(
+        [](const WiFiEventSoftAPModeStationConnected& evt) {
+            Serial.printf("[MAIN] 设备接入 AP! "
+                          "MAC: %02x:%02x:%02x:%02x:%02x:%02x, AID: %d\n",
+                          MAC2STR(evt.mac), evt.aid);
+            display.showStatus("Client Connected!\n192.168.4.1");
+        });
+
+    apDisconnHandler = WiFi.onSoftAPModeStationDisconnected(
+        [](const WiFiEventSoftAPModeStationDisconnected& evt) {
+            Serial.printf("[MAIN] 设备断开 AP! "
+                          "MAC: %02x:%02x:%02x:%02x:%02x:%02x, AID: %d\n",
+                          MAC2STR(evt.mac), evt.aid);
+            if (WiFi.softAPgetStationNum() == 0)
+            {
+                display.showStatus("AP:OLED-BitStream");
+            }
+        });
+
+    /* ---- 4. Web 服务启动（根据 network 的 AP/STA 状态动态配置路由）--- */
+    webServer.begin();
+
+    /* ---- 5. OLED 显示当前状态 ---------------------------------------- */
+    if (NetworkManager::isAPMode())
     {
-        /* -- 3a. 显示本机 IP ------------------------------------------ */
-        const String ip = WiFi.localIP().toString();
-        display.showStatus(ip.c_str());
-        Serial.printf("[MAIN] WiFi 已连接, IP: %s\n", ip.c_str());
-        delay(1200);
-
-        /* -- 3b. 启动 WebSocket 流媒体服务 ----------------------------
-         *  通过两个 Lambda 完成模块间解耦接线：
-         *  - 帧回调：  NetworkManager → DisplayManager::renderFrame
-         *  - 亮度回调：NetworkManager → DisplayManager::setBrightness
-         *  NetworkManager 不知道 OLED 存在，DisplayManager 不知道网络存在。
-         */
-        network.begin(
-            [](uint8_t *payload, size_t /*length*/)
-            { display.renderFrame(payload); },
-            [](uint8_t brightness)
-            { display.setBrightness(brightness); }
-        );
-
-        Serial.printf("[MAIN] WebSocket 服务就绪, 端口 %u\n",
-                      NetworkManager::WS_PORT);
+        display.showStatus("AP:OLED-BitStream");
+        Serial.println(F("[MAIN] AP 模式 — 热点: OLED-BitStream (无密码)"));
+        Serial.println(F("[MAIN] 请连接热点，浏览器将自动弹出离线控制台"));
     }
     else
     {
-        /* -- 3c. AP 配网模式 ------------------------------------------ */
-        display.showStatus("AP:OLED-BitStream");
-        Serial.println("[MAIN] AP 配网模式, 热点: OLED-BitStream");
+        const String ip = WiFi.localIP().toString();
+        display.showStatus(ip.c_str());
+        Serial.printf("[MAIN] STA 已连接 — IP: %s\n", ip.c_str());
+        Serial.printf("[MAIN] 访问 http://%s/ 自动跳转至控制台\n", ip.c_str());
+        delay(1200);
     }
+
+    Serial.printf("[MAIN] WebSocket 服务就绪 — 端口 %u\n", NetworkManager::WS_PORT);
 }
 
 /* ======================================================================== */
@@ -100,8 +107,8 @@ void setup()
 
 void loop()
 {
-    config.loop();   // HTTP 重定向 + DNS 劫持 + 超时检测
-    network.loop();  // WebSocket 帧接收 + 指令解析 + ACK 锁步
+    network.loop();   // WebSocket 帧接收 + 指令解析 + ACK 锁步
+    webServer.loop(); // HTTP 路由 + DNS 劫持
 
     /* ── 防卡死：确保 ESP8266 WiFi 射频栈能及时处理 TCP ACK ──────────
      *   ESP8266 是单核芯片，WiFi 协议栈与用户代码共享 CPU。
